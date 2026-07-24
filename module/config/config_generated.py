@@ -270,6 +270,11 @@ class GeneratedConfig:
     LimitBreak_UseDuplicates = True
     LimitBreak_Favourite = False
 
+    # Group `ExpFeed`
+    ExpFeed_KeepReserve = 0
+    ExpFeed_SpendTier2 = False
+    ExpFeed_Favourite = False
+
     # Group `GeneralShop`
     GeneralShop_UseGems = False
     GeneralShop_Refresh = False

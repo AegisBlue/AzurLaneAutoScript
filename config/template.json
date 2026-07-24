@@ -1436,6 +1436,30 @@
       "Storage": {}
     }
   },
+  "ExpFeed": {
+    "Scheduler": {
+      "Enable": false,
+      "NextRun": "2020-01-01 00:00:00",
+      "Command": "ExpFeed",
+      "SuccessInterval": 0,
+      "FailureInterval": 120,
+      "ServerUpdate": "00:00"
+    },
+    "ExpFeed": {
+      "KeepReserve": 0,
+      "SpendTier2": false,
+      "Favourite": false
+    },
+    "LimitBreak": {
+      "UseUniversalBulin": true,
+      "UsePrototypeBulin": true,
+      "UseDuplicates": true,
+      "Favourite": false
+    },
+    "Storage": {
+      "Storage": {}
+    }
+  },
   "Daily": {
     "Scheduler": {
       "Enable": false,

@@ -218,6 +218,11 @@ class AzurLaneAutoScript:
         from module.limit_break.limit_break import LimitBreak
         LimitBreak(config=self.config, device=self.device).run()
 
+    # Custom task, not from upstream ALAS
+    def exp_feed(self):
+        from module.exp_feed.exp_feed import ExpFeed
+        ExpFeed(config=self.config, device=self.device).run()
+
     def shop_frequent(self):
         from module.shop.shop_reward import RewardShop
         RewardShop(config=self.config, device=self.device).run_frequent()

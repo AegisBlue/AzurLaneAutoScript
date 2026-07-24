@@ -158,6 +158,10 @@
       "name": "Limit Break",
       "help": "Custom task: automatically limit break ships in dock using accumulated bulins"
     },
+    "ExpFeed": {
+      "name": "EXP Feed",
+      "help": "Custom task: feed T1 EXP Data Packs to Rare / Super Rare ships. Levels a ship to 70, maxes its limit break with bulins, then feeds it to 100."
+    },
     "Daily": {
       "name": "每日任务",
       "help": ""
@@ -1724,6 +1728,24 @@
     },
     "Favourite": {
       "name": "Limit Break Favourite Ships Only",
+      "help": ""
+    }
+  },
+  "ExpFeed": {
+    "_info": {
+      "name": "EXP Feed Settings",
+      "help": "Feeds T1 EXP Data Packs to every Rare and Super Rare ship below level 100, using the Auto button of the Boost EXP dialog (fills exactly to the ship's current level cap, never wasting more than one pack per ship).\nAlternates with limit break passes so a ship goes: feed to 70, max limit break, feed to 100. Ships that cannot be fully limit broken stay at 70 until materials are available.\nThe Limit Break Settings below control which materials the limit break passes of THIS task may spend; they are separate from the standalone Limit Break task's settings."
+    },
+    "KeepReserve": {
+      "name": "Keep T1 Packs In Reserve",
+      "help": "Stop feeding when the owned T1 EXP Data Pack count would drop below this. 0 = spend everything."
+    },
+    "SpendTier2": {
+      "name": "Allow Spending T2+ Packs",
+      "help": "The Auto button may also select higher tier EXP Data Packs if you own any. When disabled, ships whose Auto selection includes T2 packs are skipped."
+    },
+    "Favourite": {
+      "name": "Feed Favourite Ships Only",
       "help": ""
     }
   },

@@ -230,6 +230,11 @@ Reward:
     LimitBreak:
       - Scheduler
       - LimitBreak
+    # Custom task, not from upstream ALAS
+    ExpFeed:
+      - Scheduler
+      - ExpFeed
+      - LimitBreak
 
 # ==================== DailyMission ====================
 

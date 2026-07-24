@@ -481,6 +481,14 @@ LimitBreak:
     value: true
   Favourite:
     value: false
+# Custom task, not from upstream ALAS
+ExpFeed:
+  KeepReserve:
+    value: 0
+  SpendTier2:
+    value: false
+  Favourite:
+    value: false
 GeneralShop:
   UseGems: false
   Refresh: false

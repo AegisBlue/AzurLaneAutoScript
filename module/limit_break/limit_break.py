@@ -474,6 +474,49 @@ class LimitBreak(Dock):
                 self.device.click(page_main.links[page_dock])
                 continue
 
+    def lb_process_dock(self):
+        """
+        Iterate the currently filtered dock and limit break every eligible ship.
+        Dock filters must already be set.
+
+        Returns:
+            tuple[str, int]: (reason, success_count)
+                reason: 'finish' or 'insufficient_gold'
+
+        Pages:
+            in: page_dock
+            out: page_dock
+        """
+        skipped = 0
+        success = 0
+        while 1:
+            # page_dock
+            if self.appear(DOCK_EMPTY, offset=(20, 20)):
+                logger.info('lb_process_dock finished, no ships to limit break')
+                return 'finish', success
+
+            # page_dock -> SHIP_DETAIL_CHECK
+            entered = self.dock_enter_index(skipped)
+            if not entered:
+                logger.info('lb_process_dock finished, all eligible ships processed')
+                return 'finish', success
+
+            result = self.lb_ship()
+            self.lb_exit()
+            self.device.click_record_clear()
+            if result == 'success':
+                # Ship dropped off the filter (or is ready for its next tier
+                # and stays first); either way re-enter at the same index.
+                success += 1
+                continue
+            if result in ['no_material', 'skip']:
+                # Leave this ship and try the next one
+                skipped += 1
+                continue
+            if result == 'insufficient_gold':
+                logger.info('lb_process_dock finished, coins exhausted')
+                return 'insufficient_gold', success
+
     def run(self):
         if not self.lb_assets_ready():
             logger.critical('LimitBreak assets are missing, task cannot run.')
@@ -494,33 +537,7 @@ class LimitBreak(Dock):
         self.dock_sort_method_dsc_set(True, wait_loading=False)
         self.dock_filter_set(extra=['can_limit_break'], rarity=rarity)
 
-        skipped = 0
-        while 1:
-            # page_dock
-            if self.appear(DOCK_EMPTY, offset=(20, 20)):
-                logger.info('limit_break_run finished, no ships to limit break')
-                break
-
-            # page_dock -> SHIP_DETAIL_CHECK
-            entered = self.dock_enter_index(skipped)
-            if not entered:
-                logger.info('limit_break_run finished, all eligible ships processed')
-                break
-
-            result = self.lb_ship()
-            self.lb_exit()
-            self.device.click_record_clear()
-            if result == 'success':
-                # Ship dropped off the filter (or is ready for its next tier
-                # and stays first); either way re-enter at the same index.
-                continue
-            if result in ['no_material', 'skip']:
-                # Leave this ship and try the next one
-                skipped += 1
-                continue
-            if result == 'insufficient_gold':
-                logger.info('limit_break_run finished, coins exhausted')
-                break
+        self.lb_process_dock()
 
         # Reset dock filters
         logger.hr('Limit break run exit', level=1)

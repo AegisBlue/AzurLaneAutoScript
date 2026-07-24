@@ -57,7 +57,8 @@
       "Guild",
       "Reward",
       "Awaken",
-      "LimitBreak"
+      "LimitBreak",
+      "ExpFeed"
     ]
   },
   "DailyMission": {
