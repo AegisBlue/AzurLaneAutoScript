@@ -38,6 +38,11 @@ FEED_RARITY = ['rare', 'super_rare']
 TARGET_LEVEL = 100
 # feed -> limit break -> feed chains converge in 2 cycles; extra headroom
 MAX_CYCLES = 4
+# With ascending level sort the 100+ ships form the tail of the list, so a
+# long streak of them means no feedable ship remains. Streak must stay above
+# anything the fleet-pinned prefix can produce (fleet ships sort first
+# regardless of level and may include awakened 100+ ships).
+LEVEL_MAX_STREAK_STOP = 20
 
 
 class ExpFeed(LimitBreak):
@@ -259,7 +264,7 @@ class ExpFeed(LimitBreak):
         Feed the ship currently opened up to its level cap.
 
         Returns:
-            str: 'fed', 'skip' or 'packs_empty'
+            str: 'fed', 'level_max', 'skip' or 'packs_empty'
 
         Pages:
             in: SHIP_DETAIL_CHECK
@@ -271,7 +276,7 @@ class ExpFeed(LimitBreak):
             return 'skip'
         if level >= TARGET_LEVEL:
             logger.info(f'Ship level {level} >= {TARGET_LEVEL}, skip')
-            return 'skip'
+            return 'level_max'
         logger.info(f'Ship level {level}')
 
         if not self.boost_enter():
@@ -292,9 +297,11 @@ class ExpFeed(LimitBreak):
     def feed_pass(self):
         """
         One pass over the dock, feeding every Rare / Super Rare ship below 100
-        up to its current level cap. Ships are iterated on the detail page via
-        swipes, so the 100+ ships that share the not_level_max filter are
-        skipped quickly without paging the dock.
+        up to its current level cap. Sorted by level ascending, so the lowest
+        ships come first (after any fleet-pinned ships) and the 100+ ships
+        that share the not_level_max filter form the tail; a long streak of
+        them ends the pass early. Ships are iterated on the detail page via
+        swipes, so the dock is never paged.
 
         Returns:
             int: Number of ships fed.
@@ -306,7 +313,7 @@ class ExpFeed(LimitBreak):
         logger.hr('EXP feed pass', level=1)
         self.ui_ensure(page_dock)
         self.dock_favourite_set(enable=self.config.ExpFeed_Favourite, wait_loading=False)
-        self.dock_sort_method_dsc_set(True, wait_loading=False)
+        self.dock_sort_method_dsc_set(False, wait_loading=False)
         self.dock_filter_set(extra=['not_level_max'], rarity=FEED_RARITY)
 
         fed = 0
@@ -318,6 +325,7 @@ class ExpFeed(LimitBreak):
             return fed
 
         visited = 0
+        level_max_streak = 0
         while 1:
             visited += 1
             result = self.feed_ship()
@@ -328,6 +336,14 @@ class ExpFeed(LimitBreak):
                 self.packs_exhausted = True
                 logger.info('feed_pass ended, T1 packs exhausted')
                 break
+            if result == 'level_max':
+                level_max_streak += 1
+                if level_max_streak >= LEVEL_MAX_STREAK_STOP:
+                    logger.info(f'feed_pass finished, {level_max_streak} ships at 100+ in a row, '
+                                'reached the end of feedable ships')
+                    break
+            else:
+                level_max_streak = 0
             if visited >= 700:
                 logger.warning('feed_pass safety limit reached')
                 break
