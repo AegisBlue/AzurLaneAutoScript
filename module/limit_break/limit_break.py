@@ -138,7 +138,7 @@ class LimitBreak(Dock):
             out: LIMIT_BREAK_CHECK if True
         """
         logger.info('Limit break enter')
-        timeout = Timer(10, count=10).start()
+        timeout = Timer(6, count=6).start()
         self.interval_clear(SHIP_DETAIL_CHECK)
         while 1:
             if skip_first_screenshot:
@@ -152,8 +152,11 @@ class LimitBreak(Dock):
                 logger.warning('lb_enter timeout, ship skipped')
                 return False
 
+            # Tall y offset: ships with a Retrofit tab have an extra button in the
+            # left column, shifting LimitBreak down. Verified not to cross-match
+            # the META ship column (Research/Gear/Info, similarity 0.42).
             if self.appear(SHIP_DETAIL_CHECK, offset=(20, 20), interval=3) \
-                    and self.appear(LIMIT_BREAK_ENTER, offset=(20, 20)):
+                    and self.appear(LIMIT_BREAK_ENTER, offset=(20, 250)):
                 self.device.click(LIMIT_BREAK_ENTER)
                 continue
             if self.handle_game_tips():
