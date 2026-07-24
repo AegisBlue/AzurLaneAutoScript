@@ -1,40 +1,45 @@
 import os
 
-from module.base.button import Button, ButtonGrid, color_similar, get_color
+from module.base.button import Button, ButtonGrid
 from module.base.timer import Timer
 from module.base.utils import crop
 from module.limit_break.assets import *
 from module.logger import logger
-from module.ocr.ocr import DigitCounter
+from module.ocr.ocr import Digit
 from module.retire.assets import DOCK_CHECK, DOCK_EMPTY, DOCK_FIRST_NPC, SHIP_DETAIL_CHECK
 from module.retire.dock import CARD_GRIDS, Dock
 from module.ui.assets import BACK_ARROW
 from module.ui.page import page_dock, page_main
 
-# Card grid of the material selection screen. Assumed to share the dock layout;
-# tune from real screenshots when assets are captured.
+# Card grid of the material selection screen, same layout as dock
 MATERIAL_GRIDS = ButtonGrid(
     origin=(93, 76), delta=(164 + 2 / 3, 227), button_shape=(138, 204), grid_shape=(7, 2), name='MATERIAL')
 
-OCR_MATERIAL_SELECTED = DigitCounter(MATERIAL_SELECTED, threshold=64, name='OCR_MATERIAL_SELECTED')
+# Coin cost on the limit break screen, white digits in the dark pill left of the confirm button
+OCR_LB_COST = Digit(
+    Button(area=(1030, 646, 1128, 680), color=(), button=(1030, 646, 1128, 680), name='LB_COST'),
+    letter=(255, 255, 255), threshold=128, name='OCR_LB_COST')
+# Coin balance in the top resource bar
+OCR_COIN_BALANCE = Digit(
+    Button(area=(808, 22, 940, 48), color=(), button=(808, 22, 940, 48), name='COIN_BALANCE'),
+    letter=(255, 255, 255), threshold=128, name='OCR_COIN_BALANCE')
 
-# Background color of an empty card slot, same as dock
-EMPTY_CARD_COLOR = (34, 34, 42)
-# A click on this area only dismisses "touch to continue" screens
-SAFE_CLICK = Button(area=(1150, 90, 1250, 130), color=(), button=(1150, 90, 1250, 130), name='SAFE_CLICK')
+# A click here only dismisses "touch to continue" screens,
+# empty background on both the limit break screen and the success screen
+SAFE_CLICK = Button(area=(560, 85, 660, 120), color=(), button=(560, 85, 660, 120), name='SAFE_CLICK')
 
 
 class LimitBreak(Dock):
     def lb_assets_ready(self):
         """
         Returns:
-            bool: True if all button assets have been captured.
+            bool: True if all button assets exist.
         """
         files = [
-            LIMIT_BREAK_ENTER.file, LIMIT_BREAK_CHECK.file, LB_SLOT_ADD.file,
-            LB_COST_COIN.file, LB_EXECUTE.file, MATERIAL_CHECK.file,
-            MATERIAL_SELECTED.file, MATERIAL_CONFIRM.file, MATERIAL_CANCEL.file,
+            LIMIT_BREAK_ENTER.file, LIMIT_BREAK_CHECK.file, LB_SLOT_ADD.file, LB_EXECUTE.file,
+            MATERIAL_CHECK.file, MATERIAL_CONFIRM.file, MATERIAL_CANCEL.file,
             TEMPLATE_BULIN_UNIVERSAL.file, TEMPLATE_BULIN_MKII.file,
+            TEMPLATE_SLOT_EMPTY.file, TEMPLATE_SELECTED.file,
         ]
         missing = [f for f in files if not os.path.exists(f)]
         if missing:
@@ -80,6 +85,10 @@ class LimitBreak(Dock):
             return self.dock_enter_first()
 
         logger.info(f'Dock enter index {index}')
+        # The dock background is not a flat color, so unlike dock_enter_first there is
+        # no reliable empty-slot check. Clicking an empty slot does nothing, so entering
+        # times out and the run ends.
+        timeout = Timer(10, count=10).start()
         self.interval_clear(DOCK_CHECK)
         while 1:
             if skip_first_screenshot:
@@ -93,6 +102,9 @@ class LimitBreak(Dock):
             if self.appear(DOCK_EMPTY, offset=(20, 20)):
                 logger.info('Dock empty')
                 return False
+            if timeout.reached():
+                logger.info('dock_enter_index timeout, assume no more ships')
+                return False
 
             # Click
             if self.appear(DOCK_CHECK, offset=(20, 20), interval=3):
@@ -104,26 +116,22 @@ class LimitBreak(Dock):
                 if shifted >= 14:
                     logger.info('Ship index out of first dock page')
                     return False
-                button = CARD_GRIDS[(shifted % 7, shifted // 7)]
-                color = get_color(self.device.image, button.area)
-                if color_similar(color, EMPTY_CARD_COLOR):
-                    logger.info('No more ships in dock')
-                    return False
-                self.device.click(button)
+                self.device.click(CARD_GRIDS[(shifted % 7, shifted // 7)])
                 continue
             if self.handle_game_tips():
                 continue
 
     def is_in_lb(self):
+        # "Materials" section header, only shown on the limit break view
         return self.appear(LIMIT_BREAK_CHECK, offset=(20, 20))
 
     def lb_enter(self, skip_first_screenshot=True):
         """
-        From ship detail page, open the limit break screen.
+        From ship detail page, open the limit break view.
 
         Returns:
-            bool: True if in limit break screen, False if timed out
-                (e.g. the Limit Break button is absent or disabled).
+            bool: True if in limit break view, False if timed out.
+                META ships have no LimitBreak button at all and end up here as timeout.
 
         Pages:
             in: SHIP_DETAIL_CHECK
@@ -153,15 +161,32 @@ class LimitBreak(Dock):
 
     def lb_gold_insufficient(self):
         """
-        Red letters below the coin icon mean not enough coins.
-        Same detection as Awaken._get_button_state.
+        Compare the limit break coin cost against the coin balance in the top bar.
+
+        Pages:
+            in: LIMIT_BREAK_CHECK
         """
-        if LB_COST_COIN.match(self.device.image, offset=(75, 20)):
-            area = LB_COST_COIN.button
-            area = (area[0], area[3], area[2], area[3] + 60)
-            if self.image_color_count(area, color=(214, 53, 33), threshold=180, count=16):
-                return True
+        cost = OCR_LB_COST.ocr(self.device.image)
+        balance = OCR_COIN_BALANCE.ocr(self.device.image)
+        if cost > 0 and balance > 0 and balance < cost:
+            logger.info(f'Not enough coins to limit break, cost={cost}, balance={balance}')
+            return True
         return False
+
+    def material_card_present(self, button):
+        """
+        Args:
+            button (Button): Card button of MATERIAL_GRIDS
+
+        Returns:
+            bool: True if a ship card is on this grid position.
+                Detected by the white "Lv." badge across the card top,
+                the blurred dock background behind empty positions has no such white.
+        """
+        area = button.area
+        strip = (area[0] + 55, area[1] + 2, area[2] - 2, area[1] + 30)
+        # Present cards show 13-49 white pixels depending on subpixel position, empty shows 0
+        return self.image_color_count(strip, color=(255, 255, 255), threshold=221, count=5)
 
     def material_scan(self):
         """
@@ -172,14 +197,15 @@ class LimitBreak(Dock):
         """
         result = {'dupe': [], 'universal': [], 'mkii': []}
         for button in MATERIAL_GRIDS.buttons:
-            color = get_color(self.device.image, button.area)
-            if color_similar(color, EMPTY_CARD_COLOR):
+            if not self.material_card_present(button):
                 continue
             card = crop(self.device.image, button.area)
-            if TEMPLATE_BULIN_UNIVERSAL.match(card):
-                result['universal'].append(button)
-            elif TEMPLATE_BULIN_MKII.match(card):
+            if TEMPLATE_BULIN_MKII.match(card):
                 result['mkii'].append(button)
+            elif TEMPLATE_BULIN_UNIVERSAL.match(card, similarity=0.70):
+                # Template is synthesized from shop assets, not a real capture,
+                # so it matches with lower similarity
+                result['universal'].append(button)
             else:
                 result['dupe'].append(button)
         logger.info('Materials: '
@@ -204,25 +230,36 @@ class LimitBreak(Dock):
             candidates += scan['mkii']
         return candidates
 
-    def lb_select_materials(self, skip_first_screenshot=True):
+    def material_selected_count(self):
+        """
+        Returns:
+            int: Number of cards with the "SELECTED" overlay.
+        """
+        return len(TEMPLATE_SELECTED.match_multi(self.device.image))
+
+    def lb_select_materials(self, required, skip_first_screenshot=True):
         """
         In the material selection screen, select the required number of
         materials and confirm.
+
+        Args:
+            required (int): Number of materials to select.
+            skip_first_screenshot:
 
         Returns:
             str: 'success' or 'no_material'
 
         Pages:
             in: MATERIAL_CHECK
-            out: LIMIT_BREAK_CHECK if success, LIMIT_BREAK_CHECK after cancel if no_material
+            out: LIMIT_BREAK_CHECK
         """
-        logger.info('Select materials')
+        logger.info(f'Select {required} materials')
         if not skip_first_screenshot:
             self.device.screenshot()
 
         candidates = self.material_candidates()
         clicked = 0
-        timeout = Timer(20, count=20).start()
+        timeout = Timer(25, count=25).start()
         while 1:
             self.device.screenshot()
 
@@ -230,9 +267,10 @@ class LimitBreak(Dock):
                 logger.warning('lb_select_materials timeout')
                 self.material_cancel()
                 return 'no_material'
+            if self.handle_popup_confirm('MATERIAL_SELECT'):
+                continue
 
-            current, _, total = OCR_MATERIAL_SELECTED.ocr(self.device.image)
-            if total > 0 and current >= total:
+            if self.material_selected_count() >= required:
                 self.material_confirm()
                 return 'success'
             if clicked >= len(candidates):
@@ -245,6 +283,10 @@ class LimitBreak(Dock):
             self.device.sleep((0.3, 0.5))
 
     def material_confirm(self, skip_first_screenshot=True):
+        """
+        Confirm material selection. Selecting rare materials shows an
+        "Elite and above ship" warning popup, which is confirmed as well.
+        """
         logger.info('Material confirm')
         self.interval_clear(MATERIAL_CONFIRM)
         while 1:
@@ -274,10 +316,14 @@ class LimitBreak(Dock):
             if self.appear_then_click(MATERIAL_CANCEL, offset=(20, 20), interval=3):
                 continue
 
-    def lb_fill_slots(self, skip_first_screenshot=True):
+    def lb_fill_slots(self, required, skip_first_screenshot=True):
         """
-        From the limit break screen, open the material list via an empty slot
+        From the limit break view, open the material list via an empty slot
         and fill all slots.
+
+        Args:
+            required (int): Number of empty material slots.
+            skip_first_screenshot:
 
         Returns:
             str: 'success', 'no_material' or 'skip'
@@ -296,7 +342,7 @@ class LimitBreak(Dock):
                 self.device.screenshot()
 
             if self.appear(MATERIAL_CHECK, offset=(20, 20)):
-                return self.lb_select_materials()
+                return self.lb_select_materials(required)
             if timeout.reached():
                 logger.warning('lb_fill_slots timeout, ship skipped')
                 return 'skip'
@@ -309,50 +355,60 @@ class LimitBreak(Dock):
 
     def lb_execute(self, skip_first_screenshot=True):
         """
-        Slots are filled; press the limit break button and click through
-        the confirm popup and success screens.
+        Slots are filled; press the confirm button. There is no further popup,
+        the limit break plays its success screen immediately, which is clicked
+        through until back on the limit break view.
 
         Returns:
-            str: 'success' or 'insufficient_gold'
+            str: 'success', 'insufficient_gold' or 'skip'
 
         Pages:
             in: LIMIT_BREAK_CHECK
-            out: LIMIT_BREAK_CHECK or SHIP_DETAIL_CHECK
+            out: LIMIT_BREAK_CHECK, on the next limit break tier or maxed
         """
         logger.info('Limit break execute')
         if not skip_first_screenshot:
             self.device.screenshot()
 
         if self.lb_gold_insufficient():
-            logger.info('Not enough coins to limit break')
             return 'insufficient_gold'
 
-        executed = False
-        timeout = Timer(30, count=30).start()
+        left_lb_screen = False
+        timeout = Timer(45, count=45).start()
         click_timer = Timer(2)
         self.interval_clear(LB_EXECUTE)
         while 1:
             self.device.screenshot()
 
-            # End
             if timeout.reached():
-                logger.warning('lb_execute timeout, assume finished')
-                break
-            if executed and (self.is_in_lb() or self.appear(SHIP_DETAIL_CHECK, offset=(20, 20))):
-                logger.info('Limit break finished')
-                break
+                if left_lb_screen:
+                    logger.warning('lb_execute timeout on success screen, assume finished')
+                    break
+                else:
+                    logger.warning('lb_execute timeout, limit break not executed, ship skipped')
+                    return 'skip'
 
-            # Click
-            if not executed and self.appear_then_click(LB_EXECUTE, offset=(20, 20), interval=3):
-                continue
-            if self.handle_popup_confirm('LIMIT_BREAK'):
-                executed = True
-                click_timer.reset()
-                continue
-            # Success animation, "touch to continue"
-            if executed and click_timer.reached():
-                self.device.click(SAFE_CLICK)
-                click_timer.reset()
+            if not left_lb_screen:
+                # Waiting for the success screen, which has no Materials header
+                if not self.is_in_lb():
+                    left_lb_screen = True
+                    click_timer.reset()
+                    continue
+                if self.appear_then_click(LB_EXECUTE, offset=(20, 20), interval=3):
+                    continue
+                if self.handle_popup_confirm('LIMIT_BREAK'):
+                    continue
+            else:
+                # End: back on the limit break view
+                if self.is_in_lb():
+                    logger.info('Limit break finished')
+                    break
+                if self.handle_popup_confirm('LIMIT_BREAK'):
+                    continue
+                # Success animation, touch to continue
+                if click_timer.reached():
+                    self.device.click(SAFE_CLICK)
+                    click_timer.reset()
                 continue
 
         self.device.click_record_clear()
@@ -372,7 +428,15 @@ class LimitBreak(Dock):
         logger.hr('Limit break ship', level=2)
         if not self.lb_enter():
             return 'skip'
-        result = self.lb_fill_slots()
+
+        self.device.screenshot()
+        required = len(TEMPLATE_SLOT_EMPTY.match_multi(self.device.image))
+        if required < 1:
+            logger.warning('No empty material slots found, ship skipped')
+            return 'skip'
+        logger.info(f'Limit break requires {required} materials')
+
+        result = self.lb_fill_slots(required)
         if result != 'success':
             return result
         return self.lb_execute()
@@ -409,9 +473,8 @@ class LimitBreak(Dock):
 
     def run(self):
         if not self.lb_assets_ready():
-            logger.critical('LimitBreak assets have not been captured yet, task cannot run.')
-            logger.critical('See module/limit_break/assets.py for capture instructions.')
-            logger.critical('LimitBreak disables itself now; enable it again after capturing assets.')
+            logger.critical('LimitBreak assets are missing, task cannot run.')
+            logger.critical('LimitBreak disables itself now.')
             self.config.Scheduler_Enable = False
             self.config.task_stop()
 
@@ -445,7 +508,7 @@ class LimitBreak(Dock):
             self.lb_exit()
             self.device.click_record_clear()
             if result == 'success':
-                # Ship dropped off the filter (or is ready for its next stage
+                # Ship dropped off the filter (or is ready for its next tier
                 # and stays first); either way re-enter at the same index.
                 continue
             if result in ['no_material', 'skip']:
