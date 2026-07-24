@@ -19,6 +19,7 @@ class ManualConfig:
     > PrivateQuarters
     > OpsiExplore
     > Minigame > Awaken
+    > LimitBreak
     > OpsiAshBeacon
     > OpsiDaily > OpsiShop > OpsiVoucher
     > OpsiAbyssal > OpsiStronghold > OpsiObscure > OpsiArchive
