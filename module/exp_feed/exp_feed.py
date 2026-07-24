@@ -108,7 +108,7 @@ class ExpFeed(LimitBreak):
         """
         logger.info('Boost EXP enter')
         timeout = Timer(6, count=6).start()
-        self.interval_clear(BOOST_EXP)
+        self.interval_clear(SHIP_DETAIL_CHECK)
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -121,7 +121,12 @@ class ExpFeed(LimitBreak):
                 logger.info('boost_enter timeout, ship has no Boost EXP button')
                 return False
 
-            if self.appear_then_click(BOOST_EXP, offset=(20, 20), interval=3):
+            # The stats panel is semi-transparent, so the ship art tints the
+            # background behind "Boost EXP" — luma match on a tight text crop,
+            # plain rgb match fails on light-background ships.
+            if self.appear(SHIP_DETAIL_CHECK, offset=(20, 20), interval=3) \
+                    and BOOST_EXP.match_luma(self.device.image, offset=(20, 20), similarity=0.70):
+                self.device.click(BOOST_EXP)
                 continue
             if self.handle_game_tips():
                 continue
