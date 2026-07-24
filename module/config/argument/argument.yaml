@@ -471,6 +471,16 @@ Awaken:
     option: [ level120, level125 ]
   Favourite:
     value: false
+# Custom task, not from upstream ALAS
+LimitBreak:
+  UseUniversalBulin:
+    value: true
+  UsePrototypeBulin:
+    value: true
+  UseDuplicates:
+    value: true
+  Favourite:
+    value: false
 GeneralShop:
   UseGems: false
   Refresh: false

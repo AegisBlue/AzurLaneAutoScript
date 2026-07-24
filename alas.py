@@ -213,6 +213,11 @@ class AzurLaneAutoScript:
         from module.awaken.awaken import Awaken
         Awaken(config=self.config, device=self.device).run()
 
+    # Custom task, not from upstream ALAS
+    def limit_break(self):
+        from module.limit_break.limit_break import LimitBreak
+        LimitBreak(config=self.config, device=self.device).run()
+
     def shop_frequent(self):
         from module.shop.shop_reward import RewardShop
         RewardShop(config=self.config, device=self.device).run_frequent()

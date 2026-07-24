@@ -154,6 +154,10 @@
       "name": "認知覺醒",
       "help": ""
     },
+    "LimitBreak": {
+      "name": "Limit Break",
+      "help": "Custom task: automatically limit break ships in dock using accumulated bulins"
+    },
     "Daily": {
       "name": "每日任務",
       "help": ""
@@ -1698,6 +1702,28 @@
     },
     "Favourite": {
       "name": "僅覺醒常用艦船",
+      "help": ""
+    }
+  },
+  "LimitBreak": {
+    "_info": {
+      "name": "Limit Break Settings",
+      "help": "Automatically limit break ships in dock, spending bulins and duplicate copies.\nShips are found with the dock filter \"Can Limit Break\", so only ships that already meet the level requirement are touched.\nUltra rarity ships are never touched and Specialized Bulin MKIII is never spent."
+    },
+    "UseUniversalBulin": {
+      "name": "Spend Universal Bulin",
+      "help": "The purple bulin. Limit breaks Normal / Rare / Elite ships."
+    },
+    "UsePrototypeBulin": {
+      "name": "Spend Prototype Bulin MKII",
+      "help": "The gold bulin. Limit breaks Super Rare ships."
+    },
+    "UseDuplicates": {
+      "name": "Spend Duplicate Copies",
+      "help": "Use duplicate copies of the ship as material, before spending any bulin."
+    },
+    "Favourite": {
+      "name": "Limit Break Favourite Ships Only",
       "help": ""
     }
   },

@@ -226,6 +226,10 @@ Reward:
     Awaken:
       - Scheduler
       - Awaken
+    # Custom task, not from upstream ALAS
+    LimitBreak:
+      - Scheduler
+      - LimitBreak
 
 # ==================== DailyMission ====================
 

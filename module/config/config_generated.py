@@ -264,6 +264,12 @@ class GeneratedConfig:
     Awaken_LevelCap = 'level120'  # level120, level125
     Awaken_Favourite = False
 
+    # Group `LimitBreak`
+    LimitBreak_UseUniversalBulin = True
+    LimitBreak_UsePrototypeBulin = True
+    LimitBreak_UseDuplicates = True
+    LimitBreak_Favourite = False
+
     # Group `GeneralShop`
     GeneralShop_UseGems = False
     GeneralShop_Refresh = False

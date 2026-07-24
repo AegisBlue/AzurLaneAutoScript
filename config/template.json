@@ -1417,6 +1417,25 @@
       "Storage": {}
     }
   },
+  "LimitBreak": {
+    "Scheduler": {
+      "Enable": false,
+      "NextRun": "2020-01-01 00:00:00",
+      "Command": "LimitBreak",
+      "SuccessInterval": 0,
+      "FailureInterval": 120,
+      "ServerUpdate": "00:00"
+    },
+    "LimitBreak": {
+      "UseUniversalBulin": true,
+      "UsePrototypeBulin": true,
+      "UseDuplicates": true,
+      "Favourite": false
+    },
+    "Storage": {
+      "Storage": {}
+    }
+  },
   "Daily": {
     "Scheduler": {
       "Enable": false,
