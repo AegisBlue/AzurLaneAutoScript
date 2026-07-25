@@ -174,4 +174,6 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
 - `8ba264d20` Phase B: live readers, assets, name dictionary (capture session)
 - `abd2c2797` Tool-page whitelist fix
 - `1e6980c37` click-record fix for scroll paging
-- `0eea0436b` AOA skills, "?" slots, grid-pass coverage rewrite
+- `0eea0436b` AOA skills, "?" slots, grid-pass coverage
+- `ffa558f0b` enhance false-negatives (translucent panel), Siren Killer /
+  fixed-level skills, store `READER_VERSION` rewrite
