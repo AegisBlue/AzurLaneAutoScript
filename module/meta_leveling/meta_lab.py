@@ -5,8 +5,8 @@ from module.base.timer import Timer
 from module.logger import logger
 from module.meta_leveling.assets import *
 from module.ocr.ocr import Digit, DigitCounter, Ocr
-from module.retire.assets import DOCK_EMPTY, SHIP_DETAIL_CHECK
-from module.retire.dock import Dock
+from module.retire.assets import DOCK_CHECK, DOCK_EMPTY, SHIP_DETAIL_CHECK
+from module.retire.dock import CARD_GRIDS, CARD_LEVEL_GRIDS, DOCK_SCROLL, Dock
 from module.ui.assets import BACK_ARROW
 from module.ui.page import page_dock
 
@@ -105,6 +105,10 @@ SKILL_MAX_LEVEL = 10
 # observed one confirmed batch and calibrated the real value from the
 # progress counter delta.
 T1_BOOK_EXP_DEFAULT = 100
+# Books per Quick Train confirm. Live runs showed batches up to 380 books
+# apply fine while a 600-book batch confirmed without spending anything -
+# large levels simply take several rounds.
+QT_BATCH_CAP = 300
 # Safety caps per ship per run
 FORTIFY_CLICK_CAP = 60
 QT_ROUND_CAP = 15
@@ -581,7 +585,7 @@ class MetaLab(Dock):
 
         per_book = self.t1_book_exp if self.t1_book_exp else T1_BOOK_EXP_DEFAULT
         need_books = -(-(total - current) // per_book)  # ceil
-        target = min(need_books, allowance)
+        target = min(need_books, allowance, QT_BATCH_CAP)
         if not self.t1_book_exp:
             # Calibration batch: small, so a wrong default cannot overshoot
             target = min(target, 10)
@@ -902,6 +906,26 @@ class MetaLab(Dock):
             return False
         return True
 
+    def dock_card_present(self, index):
+        """
+        Card presence via white pixels of the "Lv." badge in the card's top
+        strip - the dock background is blurred scenery, so flat-color empty
+        checks fail there.
+        """
+        return self.image_color_count(CARD_LEVEL_GRIDS.buttons[index],
+                                      color=(255, 255, 255), threshold=221, count=10)
+
+    def dock_enter_card(self, button):
+        """
+        From page_dock, open a dock card's ship detail page.
+
+        Pages:
+            in: page_dock
+            out: SHIP_DETAIL_CHECK
+        """
+        self.ui_click(button, appear_button=DOCK_CHECK, check_button=SHIP_DETAIL_CHECK,
+                      skip_first_screenshot=True)
+
     def run(self):
         if not self.lab_assets_ready():
             logger.critical('MetaLab assets are missing, task cannot run.')
@@ -916,21 +940,43 @@ class MetaLab(Dock):
         self.dock_sort_method_dsc_set(True, wait_loading=False)
         self.dock_filter_set(faction='meta')
 
+        # Iterate dock cards by grid position, paging with the scroll bar.
+        # Detail-page swipes (ship_view_next) are NOT usable here: entering
+        # the META Lab and backing out drops the dock browsing context and
+        # every swipe lands on the same ship.
         processed = 0
-        if self.appear(DOCK_EMPTY, offset=(20, 20)) or not self.dock_enter_first():
-            logger.info('No META ships in dock')
-        else:
-            while 1:
+        pages = 0
+        while 1:
+            self.device.screenshot()
+            if self.appear(DOCK_EMPTY, offset=(20, 20)):
+                logger.info('No META ships in dock')
+                break
+            page_full = True
+            for index in range(len(CARD_GRIDS.buttons)):
+                self.device.screenshot()
+                if not self.dock_card_present(index):
+                    logger.info(f'Dock card {index + 1} empty, end of ship list')
+                    page_full = False
+                    break
+                self.dock_enter_card(CARD_GRIDS.buttons[index])
                 self.process_ship()
                 processed += 1
                 self.device.click_record_clear()
+                self.lb_exit_to_dock()
                 if processed >= 60:
                     logger.warning('MetaLab safety limit reached')
+                    page_full = False
                     break
-                if not self.ship_view_next(check_button=SHIP_DETAIL_CHECK):
-                    logger.info('End of META ship list')
-                    break
-            self.lb_exit_to_dock()
+            pages += 1
+            # Page cap: if returning from a ship detail resets the dock
+            # scroll, later pages would repeat the same cards - bound it.
+            if not page_full or pages >= 3:
+                break
+            if not DOCK_SCROLL.appear(main=self) or DOCK_SCROLL.at_bottom(main=self):
+                logger.info('End of dock, no further pages')
+                break
+            DOCK_SCROLL.next_page(main=self)
+        logger.info(f'META Lab pass processed {processed} ships')
 
         logger.hr('META Lab pass exit', level=1)
         self.dock_filter_set(wait_loading=False)
