@@ -50,6 +50,13 @@ class MetaLeveling(CampaignRun, Dock):
     # Set when neither the fleet nor the dock has a META ship below
     # TargetLevel left to level.
     leveling_complete = False
+    # Set by get_meta_candidate when unfinished META ships exist but all sit
+    # below MinSwapLevel (the ExpFeed pack-feeding pipeline owns them).
+    _unfinished_below_min = False
+
+    @property
+    def min_swap_level(self):
+        return int(self.config.MetaLeveling_MinSwapLevel)
 
     @property
     def fleet_to_attack(self):
@@ -176,11 +183,17 @@ class MetaLeveling(CampaignRun, Dock):
 
     def get_meta_candidate(self):
         """
-        On the deploy picker, find the replacement: the lowest-level free
-        META ship below TargetLevel, not assigned to any fleet. Only the
-        first page is scanned; with ascending level sort the lowest ships
-        are on it. The REMOVE card in the first grid cell yields no level
-        and is excluded by the scanner's level limitation.
+        On the deploy picker, find the replacement: the HIGHEST-level free
+        META ship below TargetLevel but at or above MinSwapLevel (ships
+        below the floor belong to ExpFeed's pack feeding, not the fleet).
+        Only the first page is scanned; with descending level sort the
+        finished 120+ ships lead and the candidates follow right after.
+        The REMOVE card in the first grid cell yields no level and is
+        excluded by the scanner's level limitation.
+
+        Also sets _unfinished_below_min: whether unfinished META ships
+        exist below the floor (checked with an ascending re-sort so the
+        low-level tail lands on the first page).
 
         Returns:
             Ship: from module.retire.scanner, or None if no candidate.
@@ -188,23 +201,36 @@ class MetaLeveling(CampaignRun, Dock):
         Pages:
             in: DOCK_CHECK (deploy picker opened from a fleet slot)
         """
+        self._unfinished_below_min = False
         self.dock_favourite_set(False, wait_loading=False)
-        self.dock_sort_method_dsc_set(False, wait_loading=False)
+        self.dock_sort_method_dsc_set(True, wait_loading=False)
         self.dock_filter_set(faction='meta')
 
         if self.appear(DOCK_EMPTY, offset=(20, 20)):
             logger.info('No META ship in the deploy picker')
             return None
 
-        scanner = ShipScanner(level=(1, self.target_level - 1), emotion=(0, 150),
-                              fleet=0, status='free')
+        scanner = ShipScanner(level=(self.min_swap_level, self.target_level - 1),
+                              emotion=(0, 150), fleet=0, status='free')
         scanner.disable('rarity')
         ships = scanner.scan(self.device.image, output=True)
-        if not ships:
-            logger.info('No unfinished META ship available as replacement')
-            return None
-        # Lowest level first; on equal level prefer the higher emotion
-        return min(ships, key=lambda ship: (ship.level, -ship.emotion))
+        if ships:
+            # Highest level first; on equal level prefer the higher emotion
+            return max(ships, key=lambda ship: (ship.level, ship.emotion))
+
+        logger.info(f'No free META ship in level range '
+                    f'{self.min_swap_level}-{self.target_level - 1}')
+        # Pipeline check: do unfinished METAs exist below the floor? Flip to
+        # ascending so the lowest ships are on the first page.
+        self.dock_sort_method_dsc_set(False, wait_loading=True)
+        self.device.screenshot()
+        scanner.set_limitation(level=(1, self.target_level - 1))
+        remain = scanner.scan(self.device.image, output=False)
+        self._unfinished_below_min = bool(remain)
+        if self._unfinished_below_min:
+            logger.info('Unfinished META ships exist below MinSwapLevel, '
+                        'waiting for ExpFeed to level them up')
+        return None
 
     def swap_slot(self, slot, button):
         """
@@ -276,7 +302,12 @@ class MetaLeveling(CampaignRun, Dock):
         logger.info(f'META fleet maintenance results: {results}')
 
         if results and all(status == 'no_candidate' for status in results.values()):
-            self.leveling_complete = True
+            if self._unfinished_below_min:
+                logger.info('All managed slots are leveled and the remaining METAs '
+                            'are below MinSwapLevel; waiting for ExpFeed to feed '
+                            'them up instead of disabling')
+            else:
+                self.leveling_complete = True
             return False
         # Farming is useful as long as one managed slot is still leveling
         if results and not any(status in ('in_progress', 'swapped', 'unknown')

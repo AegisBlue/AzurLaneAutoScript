@@ -298,6 +298,8 @@ MetaLeveling:
   ClearerSlot:
     value: vanguard_1
     option: [ none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3 ]
+  MinSwapLevel:
+    value: 70
   ActivateSkills:
     value: true
   DoLimitBreak:
@@ -508,6 +510,8 @@ ExpFeed:
     value: false
   Favourite:
     value: false
+  FeedMeta:
+    value: true
 # Custom task, not from upstream ALAS
 MetaLab:
   ActivateSkills:

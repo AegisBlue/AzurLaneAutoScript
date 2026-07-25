@@ -2055,6 +2055,10 @@
           "vanguard_3"
         ]
       },
+      "MinSwapLevel": {
+        "type": "input",
+        "value": 70
+      },
       "ActivateSkills": {
         "type": "checkbox",
         "value": true
@@ -7885,6 +7889,10 @@
       "Favourite": {
         "type": "checkbox",
         "value": false
+      },
+      "FeedMeta": {
+        "type": "checkbox",
+        "value": true
       }
     },
     "LimitBreak": {

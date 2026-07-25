@@ -385,6 +385,7 @@
       "TargetLevel": 120,
       "HealerSlot": "main_2",
       "ClearerSlot": "vanguard_1",
+      "MinSwapLevel": 70,
       "ActivateSkills": true,
       "DoLimitBreak": true,
       "DoFortification": true
@@ -1528,7 +1529,8 @@
     "ExpFeed": {
       "KeepReserve": 0,
       "SpendTier2": false,
-      "Favourite": false
+      "Favourite": false,
+      "FeedMeta": true
     },
     "LimitBreak": {
       "UseUniversalBulin": true,

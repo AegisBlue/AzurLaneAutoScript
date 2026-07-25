@@ -36,6 +36,12 @@ FEED_RARITY = ['rare', 'super_rare']
 # Feed below this level, skip at or above (awakened ships appear in the
 # not_level_max filter too and must not be fed)
 TARGET_LEVEL = 100
+# META pass: feed META ships through the fragile early levels only; the
+# MetaLeveling campaign farmer takes them from here (MinSwapLevel)
+META_FEED_TARGET = 70
+# High-star META ships have level caps far above 70 and Boost EXP Auto
+# fills to the CAP - this bounds the packs one confirm may take
+META_T1_CAP = 100
 # feed -> limit break -> feed chains converge in 2 cycles; extra headroom
 MAX_CYCLES = 4
 # With ascending level sort the 100+ ships form the tail of the list, so a
@@ -186,12 +192,16 @@ class ExpFeed(LimitBreak):
             return 0
         return result
 
-    def boost_feed_once(self):
+    def boost_feed_once(self, t1_cap=None):
         """
         In the Boost EXP dialog: press Auto, check the selection, confirm.
         Auto fills exactly up to the ship's current level cap, so one round
         feeds the ship to its cap. The "EXP exceeding the level cap will be
         lost" popup (sub-pack rounding) is confirmed.
+
+        Args:
+            t1_cap (int): Optional additional cap on T1 packs per confirm
+                (for META ships, whose caps can sit far above the target).
 
         Returns:
             str: 'fed'          confirmed, dialog closed
@@ -234,11 +244,12 @@ class ExpFeed(LimitBreak):
             return 'at_cap'
 
         allowed = owned - reserve
-        if t1 > allowed:
+        limit = allowed if t1_cap is None else min(allowed, t1_cap)
+        if t1 > limit:
             if allowed <= 0:
                 logger.info('T1 packs down to the reserve')
                 return 'packs_empty'
-            t1 = self.boost_reduce_t1(t1, allowed)
+            t1 = self.boost_reduce_t1(t1, limit)
             if t1 <= 0:
                 return 'packs_empty'
 
@@ -264,9 +275,13 @@ class ExpFeed(LimitBreak):
 
         return 'fed'
 
-    def feed_ship(self):
+    def feed_ship(self, target_level=TARGET_LEVEL, t1_cap=None):
         """
         Feed the ship currently opened up to its level cap.
+
+        Args:
+            target_level (int): Skip ships at or above this level.
+            t1_cap (int): Optional per-confirm T1 pack cap (META pass).
 
         Returns:
             str: 'fed', 'level_max', 'skip' or 'packs_empty'
@@ -279,15 +294,15 @@ class ExpFeed(LimitBreak):
         level = self.get_detail_level()
         if level == 0:
             return 'skip'
-        if level >= TARGET_LEVEL:
-            logger.info(f'Ship level {level} >= {TARGET_LEVEL}, skip')
+        if level >= target_level:
+            logger.info(f'Ship level {level} >= {target_level}, skip')
             return 'level_max'
         logger.info(f'Ship level {level}')
 
         if not self.boost_enter():
             return 'skip'
 
-        result = self.boost_feed_once()
+        result = self.boost_feed_once(t1_cap=t1_cap)
         if result == 'fed':
             new_level = self.get_detail_level(skip_first_screenshot=False)
             logger.info(f'Ship fed, level {level} -> {new_level}')
@@ -320,40 +335,75 @@ class ExpFeed(LimitBreak):
         self.dock_favourite_set(enable=self.config.ExpFeed_Favourite, wait_loading=False)
         self.dock_sort_method_dsc_set(False, wait_loading=False)
         self.dock_filter_set(extra=['not_level_max'], rarity=FEED_RARITY)
+        return self._feed_iterate(TARGET_LEVEL)
 
+    def meta_feed_pass(self):
+        """
+        Feed T1 EXP packs to META ships below META_FEED_TARGET, taking each
+        through the fragile early levels; the MetaLeveling campaign farmer
+        levels them from there. High-star META caps sit far above the
+        target, so each confirm is bounded by META_T1_CAP packs.
+
+        Returns:
+            int: Number of ships fed.
+
+        Pages:
+            in: Any
+            out: page_dock
+        """
+        logger.hr('META feed pass', level=1)
+        self.ui_ensure(page_dock)
+        self.dock_favourite_set(enable=self.config.ExpFeed_Favourite, wait_loading=False)
+        self.dock_sort_method_dsc_set(False, wait_loading=False)
+        self.dock_filter_set(extra=['not_level_max'], faction='meta')
+        return self._feed_iterate(META_FEED_TARGET, t1_cap=META_T1_CAP)
+
+    def _feed_iterate(self, target_level, t1_cap=None):
+        """
+        Iterate the filtered dock on the detail page (list is frozen while
+        browsing) and feed every ship below target_level.
+
+        Returns:
+            int: Number of ships fed.
+
+        Pages:
+            in: page_dock, filters applied
+            out: page_dock
+        """
         fed = 0
         if self.appear(DOCK_EMPTY, offset=(20, 20)):
-            logger.info('feed_pass finished, no ships in filter')
+            logger.info('feed pass finished, no ships in filter')
             return fed
         if not self.dock_enter_first():
-            logger.info('feed_pass finished, no ships in filter')
+            logger.info('feed pass finished, no ships in filter')
             return fed
 
         visited = 0
         level_max_streak = 0
         while 1:
             visited += 1
-            result = self.feed_ship()
+            result = self.feed_ship(target_level=target_level, t1_cap=t1_cap)
             if result == 'fed':
                 fed += 1
             self.device.click_record_clear()
             if result == 'packs_empty':
                 self.packs_exhausted = True
-                logger.info('feed_pass ended, T1 packs exhausted')
+                logger.info('feed pass ended, T1 packs exhausted')
                 break
             if result == 'level_max':
                 level_max_streak += 1
                 if level_max_streak >= LEVEL_MAX_STREAK_STOP:
-                    logger.info(f'feed_pass finished, {level_max_streak} ships at 100+ in a row, '
-                                'reached the end of feedable ships')
+                    logger.info(f'feed pass finished, {level_max_streak} ships at '
+                                f'{target_level}+ in a row, reached the end of '
+                                'feedable ships')
                     break
             else:
                 level_max_streak = 0
             if visited >= 700:
-                logger.warning('feed_pass safety limit reached')
+                logger.warning('feed pass safety limit reached')
                 break
             if not self.ship_view_next(check_button=SHIP_DETAIL_CHECK):
-                logger.info('feed_pass finished, end of dock list')
+                logger.info('feed pass finished, end of dock list')
                 break
 
         self.lb_exit()
@@ -401,6 +451,10 @@ class ExpFeed(LimitBreak):
             self.config.task_stop()
 
         self.packs_exhausted = False
+        # META ships get their packs first (they are the leveling priority)
+        if self.config.ExpFeed_FeedMeta:
+            meta_fed = self.meta_feed_pass()
+            logger.info(f'META feed pass: {meta_fed} ships fed')
         for cycle in range(1, MAX_CYCLES + 1):
             logger.hr(f'EXP feed cycle {cycle}', level=1)
             lb_count = self.lb_pass()
