@@ -89,6 +89,9 @@ OCR_ACT_REQ_GREEN = Ocr(_area_button((995, 522, 1075, 554), 'ACT_REQ_GREEN'),
 OCR_ACT_REQ_RED = Ocr(_area_button((995, 522, 1075, 554), 'ACT_REQ_RED'),
                       lang='azur_lane', letter=(230, 60, 50), threshold=128,
                       alphabet='0123456789', name='OCR_ACT_REQ_RED')
+OCR_ACT_REQ_WHITE = Ocr(_area_button((995, 522, 1075, 554), 'ACT_REQ_WHITE'),
+                        lang='azur_lane', letter=(255, 255, 255), threshold=128,
+                        alphabet='0123456789/', name='OCR_ACT_REQ_WHITE')
 
 # Neutral click point to dismiss full-screen celebrations (somatic
 # activation star-up etc.) - a tap anywhere closes them
@@ -828,24 +831,33 @@ class MetaLab(Dock):
 
     def read_activation_requirement(self):
         """
-        Read the "Level Requirement: X/Y" line. The current level is always
-        red, the "/required" part always light; met = current >= required.
+        Read the "Level Requirement: X/Y" line. The current level is GREEN
+        when the requirement is met and RED when unmet - the color decides.
 
         Returns:
-            tuple: (current, required, met) with 0s when unreadable.
+            tuple: (current, required_raw, met). required_raw is the raw
+                white OCR of the "/required" part: its digits are not
+                always exact, but they are stable per screen and CHANGE
+                with every star tier - the only usable star-up signal for
+                high-level ships (a Lv.120 reads "met" at every tier, so
+                level+met alone cannot detect a successful activation).
+                (0, '', False) when unreadable.
 
         Pages:
-            in: ACT_CHECK
+            in: somatic activation screen
         """
         green = str(OCR_ACT_REQ_GREEN.ocr(self.device.image)).replace(' ', '')
         match = re.search(r'(\d+)', green)
         if match:
-            return int(match.group(1)), 0, True
-        red = str(OCR_ACT_REQ_RED.ocr(self.device.image)).replace(' ', '')
-        match = re.search(r'(\d+)', red)
-        if match:
-            return int(match.group(1)), 0, False
-        return 0, 0, False
+            current, met = int(match.group(1)), True
+        else:
+            red = str(OCR_ACT_REQ_RED.ocr(self.device.image)).replace(' ', '')
+            match = re.search(r'(\d+)', red)
+            if not match:
+                return 0, '', False
+            current, met = int(match.group(1)), False
+        required_raw = str(OCR_ACT_REQ_WHITE.ocr(self.device.image)).replace(' ', '')
+        return current, required_raw, met
 
     def activation_pass(self):
         """
@@ -862,15 +874,16 @@ class MetaLab(Dock):
         """
         for _ in range(5):
             self.device.screenshot()
-            current, _, met = self.read_activation_requirement()
+            current, required_raw, met = self.read_activation_requirement()
             if current <= 0:
                 logger.info('No level requirement read, activation complete or unreadable')
                 return
             if not met:
                 logger.info(f'Activation level requirement not met (level {current})')
                 return
-            logger.info(f'Activation requirement met (level {current}), activating')
-            before = (current, met)
+            logger.info(f'Activation requirement met (level {current}, '
+                        f'tier {required_raw}), activating')
+            before = (met, required_raw)
             timeout = Timer(20, count=20).start()
             self.interval_clear(ACT_BUTTON)
             unreadable = 0
@@ -895,7 +908,7 @@ class MetaLab(Dock):
                 state = self.read_activation_requirement()
                 if state[0] > 0:
                     unreadable = 0
-                    if (state[0], state[2]) != before:
+                    if (state[2], state[1]) != before:
                         logger.info(f'Activation done, requirement state now {state}')
                         break
                     if clicked >= 2:
