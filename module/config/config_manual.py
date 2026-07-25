@@ -29,6 +29,7 @@ class ManualConfig:
     > Event > Event2 > Raid > Hospital > Coalition > Main > Main2 > Main3
     > OpsiMeowfficerFarming
     > GemsFarming
+    > MetaLeveling
     > OpsiHazard1Leveling
     """
 

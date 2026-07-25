@@ -62,6 +62,10 @@
       "name": "Commission Farming",
       "help": ""
     },
+    "MetaLeveling": {
+      "name": "META Leveling",
+      "help": "Level and max out META ships: farm a campaign stage with a META fleet, keep their skills progressing, and swap out finished ships. Custom task, not from upstream ALAS."
+    },
     "EventGeneral": {
       "name": "Event General",
       "help": ""
@@ -1257,6 +1261,43 @@
     "Config": {
       "name": "Gear code config",
       "help": "Format is yaml"
+    }
+  },
+  "MetaLeveling": {
+    "_info": {
+      "name": "META Leveling Settings",
+      "help": "Farms the configured campaign stage with your META fleet and checks the ships between batches: keeps a skill actively gaining EXP on each ship, performs limit break and rigging fortification when possible, and swaps fully maxed ships out for unfinished META ships. Set up the fleet once (healer included); the task manages the other slots. Disables itself when every META ship is complete."
+    },
+    "CheckInterval": {
+      "name": "Runs Between Ship Checks",
+      "help": "Farm this many campaign runs, then re-check every META ship in the fleet (skill progress, level, swap-outs). Lower = more responsive but more time spent outside battle."
+    },
+    "TargetLevel": {
+      "name": "Target Level",
+      "help": "A ship counts as level-finished at this level. META ships cap at 120."
+    },
+    "HealerSlot": {
+      "name": "Healer Slot",
+      "help": "The fleet slot your healer sits in. This slot is never inspected or swapped. Set to none if the fleet has no healer.",
+      "none": "none",
+      "main_1": "Main fleet slot 1",
+      "main_2": "Main fleet slot 2 (flagship)",
+      "main_3": "Main fleet slot 3",
+      "vanguard_1": "Vanguard slot 1",
+      "vanguard_2": "Vanguard slot 2",
+      "vanguard_3": "Vanguard slot 3"
+    },
+    "ActivateSkills": {
+      "name": "Manage Skill Activation",
+      "help": "Keep one unfinished skill actively gaining EXP on each META ship, and activate the next one when it maxes."
+    },
+    "DoLimitBreak": {
+      "name": "Perform Limit Breaks",
+      "help": "Limit break META ships when the requirements and materials are met."
+    },
+    "DoFortification": {
+      "name": "Perform Rigging Fortification",
+      "help": "Fortify META ship rigging when materials are available."
     }
   },
   "EventGeneral": {

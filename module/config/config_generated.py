@@ -158,6 +158,14 @@ class GeneratedConfig:
     EquipmentCode_ExportToConfig = True
     EquipmentCode_Config = None
 
+    # Group `MetaLeveling`
+    MetaLeveling_CheckInterval = 10
+    MetaLeveling_TargetLevel = 120
+    MetaLeveling_HealerSlot = 'main_2'  # none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3
+    MetaLeveling_ActivateSkills = True
+    MetaLeveling_DoLimitBreak = True
+    MetaLeveling_DoFortification = True
+
     # Group `EventGeneral`
     EventGeneral_PtLimit = 0
     EventGeneral_TimeLimit = datetime.datetime(2020, 1, 1, 0, 0)
