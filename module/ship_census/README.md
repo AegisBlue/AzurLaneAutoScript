@@ -157,10 +157,13 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   keep the store schema versioned (`SCHEMA_VERSION` in store.py).
 - Enhance read came back null for 3 non-lab ships in run 1 — likely transient
   timeouts; delta runs retry them. Investigate if it persists.
-- The 2026-07-25 delta run ended at ship 81 of the 189 the grid pass counted
-  ("Census sweep reached the end of the dock" after 3 failed swipe retries) —
-  the swipe sweep can still die early; worth a look before trusting a run's
-  `missing` flags.
+- **The swipe sweep can still die early** — two 2026-07-25 runs stopped at 81 of
+  189 and at 49 of ~190 cards ("reached the end of the dock" after 3 failed
+  swipe retries). Since `a83e1341f` a short sweep no longer counts as complete
+  (so it can't brand unvisited ships `missing` → dashboard "gone?"), and the
+  grid pass re-reads a page that ends early while the dock isn't at the bottom,
+  but the underlying swallowed-swipe cause is unfixed. Check the ship count in
+  the log before trusting a run.
 - The dock's Stats overlay also has a Skills page (rows truncate above 2 skills
   — detail page stays authoritative) — possible future grid-only shortcut.
 - `ship_names_en.json` refresh: rebuild from AzurLaneTools/AzurLaneData when new
@@ -176,4 +179,5 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
 - `1e6980c37` click-record fix for scroll paging
 - `0eea0436b` AOA skills, "?" slots, grid-pass coverage
 - `ffa558f0b` enhance false-negatives (translucent panel), Siren Killer /
-  fixed-level skills, store `READER_VERSION` rewrite
+  fixed-level skills, store `READER_VERSION`
+- `a83e1341f` short sweeps no longer flag ships `missing`; grid-page re-read rewrite
