@@ -1036,6 +1036,12 @@ class MetaLab(Dock):
             if self.hub_goto_subscreen(HUB_ACTIVATION):
                 self.activation_pass()
                 self.subscreen_back_to_hub()
+        elif self.config.MetaLab_DoActivation and activation_badge == 'none':
+            # The game only shows the '!' badge when a star-up is possible
+            # NOW: level requirement met AND enough of THIS ship's own META
+            # Crystals (they are per-ship items, not a shared pool).
+            logger.info('No activation offered by the game (level requirement '
+                        "unmet or this ship's META Crystals are short)")
 
         self.lab_exit()
         return 'done'
@@ -1064,6 +1070,20 @@ class MetaLab(Dock):
         """
         return self.image_color_count(CARD_LEVEL_GRIDS.buttons[index],
                                       color=(255, 255, 255), threshold=221, count=10)
+
+    def dock_card_present_settled(self, index):
+        """
+        dock_card_present with one retry on a fresh screenshot. Right after
+        a page scroll the list may still be gliding, and a single mid-glide
+        frame reading 'empty' would end the whole dock sweep (observed
+        live: a run stopped at 14 ships while two more pages of METAs sat
+        below the fold).
+        """
+        if self.dock_card_present(index):
+            return True
+        self.device.sleep((1.0, 1.4))
+        self.device.screenshot()
+        return self.dock_card_present(index)
 
     def dock_enter_card(self, button):
         """
@@ -1104,7 +1124,7 @@ class MetaLab(Dock):
             page_full = True
             for index in range(len(CARD_GRIDS.buttons)):
                 self.device.screenshot()
-                if not self.dock_card_present(index):
+                if not self.dock_card_present_settled(index):
                     logger.info(f'Dock card {index + 1} empty, end of ship list')
                     page_full = False
                     break
@@ -1126,6 +1146,9 @@ class MetaLab(Dock):
                 logger.info('End of dock, no further pages')
                 break
             DOCK_SCROLL.next_page(main=self)
+            # The fling keeps gliding after the scroll call returns - let
+            # the list settle before the first card presence check.
+            self.device.sleep((1.0, 1.4))
         logger.info(f'META Lab pass processed {processed} ships')
 
         logger.hr('META Lab pass exit', level=1)
