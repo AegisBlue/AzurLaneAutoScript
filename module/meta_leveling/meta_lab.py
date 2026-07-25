@@ -38,10 +38,11 @@ TACTICS_SKILL_CARDS = [
     _area_button((897, 560, 1065, 640), 'TACTICS_SKILL_2'),
     _area_button((1082, 560, 1250, 640), 'TACTICS_SKILL_3'),
 ]
-TACTICS_SKILL_LEVELS = [
-    _area_button((752, 613, 862, 637), 'TACTICS_SKILL_LEVEL_1'),
-    _area_button((937, 613, 1047, 637), 'TACTICS_SKILL_LEVEL_2'),
-    _area_button((1122, 613, 1232, 637), 'TACTICS_SKILL_LEVEL_3'),
+# White triangle marker under the SELECTED skill card
+TACTICS_SELECT_MARKERS = [
+    _area_button((787, 628, 815, 650), 'TACTICS_MARKER_1'),
+    _area_button((959, 628, 987, 650), 'TACTICS_MARKER_2'),
+    _area_button((1131, 628, 1159, 650), 'TACTICS_MARKER_3'),
 ]
 
 # --- quick train dialog ---
@@ -50,8 +51,6 @@ TACTICS_SKILL_LEVELS = [
 OCR_QT_PROGRESS = DigitCounter(_area_button((790, 158, 970, 184), 'QT_PROGRESS'),
                                letter=(255, 255, 255), threshold=128,
                                name='OCR_QT_PROGRESS')
-OCR_QT_T1_SELECTED = Digit(_area_button((618, 296, 750, 330), 'QT_T1_SELECTED'),
-                           letter=(255, 255, 255), threshold=128, name='OCR_QT_T1_SELECTED')
 OCR_QT_T1_OWNED = Digit(_area_button((366, 313, 407, 335), 'QT_T1_OWNED'),
                         letter=(255, 255, 255), threshold=128, name='OCR_QT_T1_OWNED')
 OCR_QT_T2_OWNED = Digit(_area_button((366, 417, 407, 439), 'QT_T2_OWNED'),
@@ -60,12 +59,18 @@ OCR_QT_T2_OWNED = Digit(_area_button((366, 417, 407, 439), 'QT_T2_OWNED'),
 QT_T1_MINUS = _area_button((555, 288, 602, 334), 'QT_T1_MINUS')
 
 # --- rigging fortification screen ---
-# "Materials Needed: 7192/4" -> owned/needed. Grey digits on the light bar.
-# NOT a DigitCounter: that class clamps current to total, and owned is
-# usually far larger than needed.
-OCR_FORTIFY_MATS = Ocr(_area_button((248, 582, 322, 608), 'FORTIFY_MATS'),
-                       lang='azur_lane', letter=(100, 100, 105), threshold=96,
-                       alphabet='0123456789/', name='OCR_FORTIFY_MATS')
+# The details panel (bonus + "Materials Needed: owned/needed") docks UNDER
+# the selected category; the four category columns start at x 91/358/625/892
+# (stride 267). Grey digits on the light bar. NOT a DigitCounter: that class
+# clamps current to total, and owned is usually far larger than needed.
+def _fortify_mats_ocr(index):
+    left = 248 + 267 * index
+    return Ocr(_area_button((left, 582, left + 74, 608), f'FORTIFY_MATS_{index + 1}'),
+               lang='azur_lane', letter=(100, 100, 105), threshold=96,
+               alphabet='0123456789/', name=f'OCR_FORTIFY_MATS_{index + 1}')
+
+
+OCR_FORTIFY_MATS = [_fortify_mats_ocr(i) for i in range(4)]
 # Category click points across the top of the fortification screen
 FORTIFY_CATEGORIES = [
     _area_button((190, 320, 250, 370), 'FORTIFY_CAT_1'),
@@ -75,16 +80,19 @@ FORTIFY_CATEGORIES = [
 ]
 
 # --- somatic activation screen ---
-# "Level Requirement: 1/10". The current level is RED when unmet and light
-# when met, the "/required" part is always light -> two reads (validated
-# offline): white catches "/10" (unmet) or "12/10" (met), red catches the
-# unmet current.
-OCR_ACT_REQ_WHITE = Ocr(_area_button((995, 525, 1050, 550), 'ACT_REQ_WHITE'),
-                        lang='azur_lane', letter=(255, 255, 255), threshold=128,
-                        alphabet='0123456789/', name='OCR_ACT_REQ_WHITE')
-OCR_ACT_REQ_RED = Ocr(_area_button((995, 525, 1050, 550), 'ACT_REQ_RED'),
+# "Level Requirement: 70/10". The current level is GREEN when the
+# requirement is met (Bristol 70/10) and RED when unmet (Fusou 1/10) ->
+# the color alone decides; the "/required" number is informational only.
+OCR_ACT_REQ_GREEN = Ocr(_area_button((995, 522, 1075, 554), 'ACT_REQ_GREEN'),
+                        lang='azur_lane', letter=(126, 210, 90), threshold=128,
+                        alphabet='0123456789', name='OCR_ACT_REQ_GREEN')
+OCR_ACT_REQ_RED = Ocr(_area_button((995, 522, 1075, 554), 'ACT_REQ_RED'),
                       lang='azur_lane', letter=(230, 60, 50), threshold=128,
                       alphabet='0123456789', name='OCR_ACT_REQ_RED')
+
+# Neutral click point to dismiss full-screen celebrations (somatic
+# activation star-up etc.) - a tap anywhere closes them
+LAB_DISMISS = _area_button((550, 660, 730, 700), 'LAB_DISMISS')
 
 # Badge search regions on the lab hub (top-left corner of the hub boxes)
 HUB_ACTIVATION_BADGE = (195, 195, 265, 265)
@@ -162,6 +170,20 @@ class MetaLab(Dock):
             if self.handle_game_tips():
                 continue
 
+    def handle_lab_info_dialog(self):
+        """
+        Confirm "Information"-style dialogs the lab throws (fortification
+        milestone rewards etc.). The Confirm position varies per dialog, so
+        it is searched with a wide offset.
+
+        Returns:
+            bool: If handled.
+        """
+        if self.appear(LEARN_CHECK, offset=(20, 20)):
+            if self.appear_then_click(LEARN_CONFIRM, offset=(200, 60), interval=3):
+                return True
+        return False
+
     def lab_exit(self, skip_first_screenshot=True):
         """
         Back out of the lab (hub or subscreen) to the ship detail page.
@@ -183,12 +205,18 @@ class MetaLab(Dock):
             if timeout.reached():
                 logger.warning('lab_exit timeout')
                 return False
+            if self.handle_lab_info_dialog():
+                timeout.reset()
+                continue
             if self.is_in_lab():
                 self.device.click(BACK_ARROW)
                 self.device.sleep((1.0, 1.4))
                 continue
             if self.handle_popup_cancel('LAB_EXIT'):
                 continue
+            # Neither lab nor detail: possibly a full-screen celebration
+            self.device.click(LAB_DISMISS)
+            self.device.sleep((1.0, 1.4))
 
     def hub_goto(self, button, check, skip_first_screenshot=True):
         """
@@ -227,9 +255,16 @@ class MetaLab(Dock):
             if timeout.reached():
                 logger.warning('subscreen_back_to_hub timeout')
                 return False
+            if self.handle_lab_info_dialog():
+                timeout.reset()
+                continue
             if self.is_in_lab():
                 self.device.click(BACK_ARROW)
                 self.device.sleep((1.0, 1.4))
+                continue
+            # Possibly a full-screen celebration overlay
+            self.device.click(LAB_DISMISS)
+            self.device.sleep((1.0, 1.4))
 
     # -------------------------------------------------------------- reading
 
@@ -331,35 +366,54 @@ class MetaLab(Dock):
             return 'available'
         return 'none'
 
-    def read_tactics_skills(self):
+    def read_tactics_states(self):
         """
-        Read the three skill cards on the Tactical Training screen.
+        Read the three skill cards on the Tactical Training screen via the
+        opaque state bands only. Card level digits are NOT read: the card
+        chips take the ship art's tint and their thin font defeats OCR.
 
         Returns:
-            list[dict]: per card {'state': 'trainable'|'researching'|
-                'learned'|'empty', 'level': int|None}
+            list[str]: per card 'trainable', 'researching' or 'other'
+                ('other' = learned, maxed or empty slot; the main panel
+                disambiguates after selecting the card).
 
         Pages:
             in: TACTICS_CHECK
         """
         results = []
-        image = self.device.image
-        for card, level_area in zip(TACTICS_SKILL_CARDS, TACTICS_SKILL_LEVELS):
+        for card in TACTICS_SKILL_CARDS:
             crop = self.image_crop(card, copy=False)
-            state = 'learned'
             if TEMPLATE_SKILL_TRAINABLE.match(crop, similarity=0.70):
-                state = 'trainable'
+                results.append('trainable')
             elif TEMPLATE_SKILL_RESEARCHING.match(crop, similarity=0.70):
-                state = 'researching'
-            level_ocr = Ocr(level_area, lang='cnocr', letter=(255, 255, 255),
-                            threshold=128, alphabet='0123456789LEVEL:? ',
-                            name='TACTICS_SKILL_LEVEL')
-            level = self._skill_level_from_text(str(level_ocr.ocr(image)))
-            if state == 'learned' and level is None:
-                state = 'empty'
-            results.append({'state': state, 'level': level})
-        logger.info(f'Tactics skills: {results}')
+                results.append('researching')
+            else:
+                results.append('other')
+        logger.info(f'Tactics card states: {results}')
         return results
+
+    def skill_card_selected(self, index):
+        """
+        Returns:
+            bool: The white triangle marker sits under card `index`.
+
+        Pages:
+            in: TACTICS_CHECK
+        """
+        return self.image_color_count(TACTICS_SELECT_MARKERS[index],
+                                      color=(255, 255, 255), threshold=221, count=25)
+
+    def skill_maxed_notice(self):
+        """
+        Returns:
+            bool: The main panel shows "Current skill is already max level."
+
+        Pages:
+            in: TACTICS_CHECK
+        """
+        crop = self.image_crop(_area_button((710, 300, 1250, 480), 'MAXED_REGION'),
+                               copy=False)
+        return bool(TEMPLATE_SKILL_MAXED.match(crop, similarity=0.75))
 
     # -------------------------------------------------------------- tactics
 
@@ -367,22 +421,32 @@ class MetaLab(Dock):
     def t1_reserve(self):
         return int(self.config.MetaLab_T1BookReserve)
 
-    def learn_skill(self, card, skip_first_screenshot=True):
+    def process_skill_card(self, index):
         """
-        Click a trainable skill card and confirm the learn dialog
-        (spends 5 red T3 skill books).
+        Select the skill card at `index` and drive it as far as possible:
+        learn it if trainable (Information dialog, 5 red T3 books), then
+        Quick Train it to max while books last. All decisions come from
+        opaque, high-contrast UI: the learn dialog, the "already max level"
+        notice, and the Quick Train button (present only for a selected
+        skill that can be fed).
 
         Returns:
-            bool: learned
+            str: 'maxed'         skill at max level
+                 'in_progress'   skill active but not maxed (no/low books,
+                                 or Quick Train disabled)
+                 'out_of_books'  book reserve reached mid-feed
+                 'empty'         slot has no (selectable) skill
+                 'failed'        UI did not behave
 
         Pages:
             in: TACTICS_CHECK
             out: TACTICS_CHECK
         """
-        logger.hr('Learn skill', level=2)
-        confirmed = False
-        timeout = Timer(15, count=15).start()
+        logger.hr(f'Skill card {index + 1}', level=2)
+        card = TACTICS_SKILL_CARDS[index]
+        timeout = Timer(20, count=20).start()
         self.interval_clear(TACTICS_CHECK)
+        skip_first_screenshot = True
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -390,49 +454,84 @@ class MetaLab(Dock):
                 self.device.screenshot()
 
             if timeout.reached():
-                logger.warning('learn_skill timeout')
-                return False
+                logger.info(f'Skill card {index + 1}: no reaction, treating as empty')
+                return 'empty'
+
+            # Learn / resume dialog
             if self.appear(LEARN_CHECK, offset=(20, 20)):
-                if self.appear_then_click(LEARN_CONFIRM, offset=(20, 20), interval=3):
-                    confirmed = True
+                if not self.config.MetaLab_ActivateSkills:
+                    logger.info('Skill activation disabled, cancelling dialog')
+                    self.ui_click(LEARN_CANCEL, check_button=TACTICS_CHECK,
+                                  offset=(20, 20), skip_first_screenshot=True)
+                    return 'in_progress'
+                self.appear_then_click(LEARN_CONFIRM, offset=(20, 20), interval=3)
+                timeout.reset()
                 continue
-            if confirmed and self.appear(TACTICS_CHECK, offset=(20, 20)):
-                return True
-            if not confirmed and self.appear(TACTICS_CHECK, offset=(20, 20), interval=3):
-                self.device.click(card)
+            if self.handle_popup_confirm('SKILL_CARD'):
+                timeout.reset()
                 continue
-            if self.handle_popup_confirm('LEARN_SKILL'):
+
+            if not self.appear(TACTICS_CHECK, offset=(20, 20)):
                 continue
+
+            # The main panel only describes the SELECTED card - never judge
+            # this card from a panel that belongs to another one
+            if not self.skill_card_selected(index):
+                if self.appear(TACTICS_CHECK, offset=(20, 20), interval=3):
+                    self.device.click(card)
+                continue
+
+            # Selected skill already maxed
+            if self.skill_maxed_notice():
+                logger.info(f'Skill card {index + 1}: max level')
+                return 'maxed'
+
+            # Selected skill is idle: start researching it first
+            if self.appear(BEGIN_RESEARCH, offset=(20, 20), interval=3):
+                if not self.config.MetaLab_ActivateSkills:
+                    logger.info('Skill idle but activation disabled')
+                    return 'in_progress'
+                self.device.click(BEGIN_RESEARCH)
+                timeout.reset()
+                continue
+
+            # Selected skill can be fed
+            if self.appear(QUICK_TRAIN, offset=(20, 20)):
+                if not self.config.MetaLab_UseQuickTrain or self.books_exhausted:
+                    return 'in_progress'
+                result = self.quick_train_once()
+                if result == 'fed':
+                    timeout.reset()
+                    continue
+                if result == 'no_need':
+                    # Level advanced; loop re-reads the panel (the maxed
+                    # notice appears once the skill tops out)
+                    timeout.reset()
+                    self.device.sleep((0.5, 0.8))
+                    continue
+                if result == 'no_books':
+                    return 'out_of_books'
+                return 'failed'
+
+            # Selected but no actionable panel content yet - wait for it
+            continue
 
     # Learned T1 book EXP value; 0 = not calibrated yet this session
     t1_book_exp = 0
-    # (current, total, selected) of the last confirmed batch, for calibration
-    _qt_last = None
-
-    def _qt_calibrate(self, current, total):
-        """
-        After a confirmed batch, derive the per-book EXP from the counter
-        delta of the previous round. Only possible when the skill did not
-        level up in between (same total, grown current).
-        """
-        if self.t1_book_exp or not self._qt_last:
-            return
-        last_current, last_total, last_selected = self._qt_last
-        if total == last_total and current > last_current and last_selected > 0:
-            per_book = (current - last_current) / last_selected
-            if per_book >= 1 and abs(per_book - round(per_book)) < 0.01:
-                self.t1_book_exp = int(round(per_book))
-                logger.info(f'Calibrated T1 book EXP: {self.t1_book_exp}')
 
     def quick_train_once(self, skip_first_screenshot=True):
         """
-        Open the Quick Train dialog and feed T1 books into the researching
-        skill, aiming to complete the current skill level, respecting the
-        book reserve. Until the per-book EXP has been calibrated from an
-        observed batch, batches are capped at 10 books.
+        Open the Quick Train dialog and feed one batch of T1 books into the
+        selected skill, respecting the book reserve, then close the dialog.
+
+        The dialog STAYS OPEN after Confirm and the selected-count digits
+        misread (thin font), so the flow is: click a deterministic number
+        of +10/+1, Confirm, then verify by the owned-count delta - the only
+        reliably readable number. The per-book EXP is calibrated from the
+        first confirmed batch (owned delta vs progress delta).
 
         Returns:
-            str: 'fed'         confirmed a book batch
+            str: 'fed'         a batch was confirmed (owned count dropped)
                  'no_books'    T1 books at/below the reserve
                  'no_need'     nothing to feed (skill likely maxed)
                  'failed'      dialog did not behave, aborted
@@ -460,12 +559,18 @@ class MetaLab(Dock):
                 self.device.click(QUICK_TRAIN)
                 continue
 
+        # Let the dialog settle before reading or clicking
+        self.device.sleep((0.8, 1.2))
+        self.device.screenshot()
         owned = OCR_QT_T1_OWNED.ocr(self.device.image)
         current, _, total = OCR_QT_PROGRESS.ocr(self.device.image)
-        self._qt_calibrate(current, total)
         allowance = owned - self.t1_reserve
         logger.info(f'Quick Train: T1 owned={owned}, reserve={self.t1_reserve}, '
                     f'progress {current}/{total}')
+        if owned <= 0:
+            logger.warning('Owned count unreadable, aborting dialog')
+            self.qt_close()
+            return 'failed'
         if allowance <= 0:
             self.qt_close()
             self.books_exhausted = True
@@ -478,13 +583,12 @@ class MetaLab(Dock):
         need_books = -(-(total - current) // per_book)  # ceil
         target = min(need_books, allowance)
         if not self.t1_book_exp:
-            # Calibration round: small batch so a wrong default cannot
-            # overshoot by much
+            # Calibration batch: small, so a wrong default cannot overshoot
             target = min(target, 10)
         logger.info(f'Book EXP={per_book}{"" if self.t1_book_exp else " (default)"}, '
                     f'books needed={need_books}, target={target}')
 
-        # Build up the selection with +10 / +1 clicks
+        # Build up the selection with +10 / +1 clicks, no OCR verification
         remain = target
         clicks = 0
         while remain > 0 and clicks < 200:
@@ -497,39 +601,46 @@ class MetaLab(Dock):
             clicks += 1
             if clicks % 8 == 0:
                 self.device.click_record_clear()
-            self.device.sleep((0.10, 0.18))
+            self.device.sleep((0.15, 0.25))
         self.device.click_record_clear()
         self.device.sleep((0.4, 0.7))
-        self.device.screenshot()
-        selected = OCR_QT_T1_SELECTED.ocr(self.device.image)
-        if selected <= 0:
-            logger.warning('Quick Train selection reads 0 after clicking, aborting')
-            self.qt_close()
-            return 'failed'
-        if selected > allowance:
-            logger.warning(f'Quick Train selection {selected} exceeds allowance '
-                           f'{allowance}, aborting')
-            self.qt_close()
-            return 'failed'
 
-        logger.info(f'Quick Train confirm, spending {selected} T1 books')
-        self._qt_last = (current, total, selected)
-        timeout = Timer(15, count=15).start()
-        self.interval_clear(QT_CONFIRM)
+        logger.info(f'Quick Train confirm, spending up to {target} T1 books')
+        self.device.click(QT_CONFIRM)
+        self.device.sleep((1.2, 1.8))
+
+        # Verify via owned delta; the dialog stays open after Confirm
+        result = 'failed'
+        confirm_timer = Timer(10, count=10).start()
         while 1:
             self.device.screenshot()
-            if not self.appear(QT_CHECK, offset=(20, 20)) \
-                    and self.appear(TACTICS_CHECK, offset=(20, 20)):
-                return 'fed'
-            if timeout.reached():
-                logger.warning('Quick Train confirm timeout')
-                self.qt_close()
-                return 'failed'
-            if self.appear(QT_CHECK, offset=(20, 20)) \
-                    and self.appear_then_click(QT_CONFIRM, offset=(20, 20), interval=3):
-                continue
             if self.handle_popup_confirm('QUICK_TRAIN'):
                 continue
+            if self.appear(QT_CHECK, offset=(20, 20)):
+                owned_now = OCR_QT_T1_OWNED.ocr(self.device.image)
+                spent = owned - owned_now
+                if 0 < spent <= target:
+                    current_now, _, total_now = OCR_QT_PROGRESS.ocr(self.device.image)
+                    logger.info(f'Quick Train spent {spent} books, progress '
+                                f'{current_now}/{total_now}')
+                    if not self.t1_book_exp and total_now == total \
+                            and current_now > current:
+                        per = (current_now - current) / spent
+                        if per >= 1 and abs(per - round(per)) < 0.01:
+                            self.t1_book_exp = int(round(per))
+                            logger.info(f'Calibrated T1 book EXP: {self.t1_book_exp}')
+                    result = 'fed'
+                    break
+            elif self.appear(TACTICS_CHECK, offset=(20, 20)):
+                # Dialog closed on its own (possible on skill level max)
+                logger.info('Quick Train dialog closed after confirm')
+                return 'fed'
+            if confirm_timer.reached():
+                logger.warning('Quick Train confirm produced no owned change')
+                break
+
+        self.qt_close()
+        return result
 
     def qt_close(self, skip_first_screenshot=True):
         timeout = Timer(10, count=10).start()
@@ -560,89 +671,92 @@ class MetaLab(Dock):
             in: TACTICS_CHECK
             out: TACTICS_CHECK
         """
-        for _ in range(QT_ROUND_CAP):
-            self.device.screenshot()
-            skills = self.read_tactics_skills()
-            states = [s['state'] for s in skills]
-            levels = [s['level'] for s in skills]
+        self.device.screenshot()
+        states = self.read_tactics_states()
 
-            all_maxed = all(
-                s['state'] not in ('trainable', 'researching')
-                and s['level'] == SKILL_MAX_LEVEL
-                for s in skills if s['state'] != 'empty'
-            ) and any(s['state'] != 'empty' for s in skills)
-            if all_maxed:
-                logger.info('All skills maxed')
-                return True
+        # Work the researching card first: touching another card while one
+        # is researching could switch the research target.
+        order = [i for i, s in enumerate(states) if s == 'researching'] \
+            + [i for i, s in enumerate(states) if s != 'researching']
 
-            if 'researching' in states:
-                if not self.config.MetaLab_UseQuickTrain or self.books_exhausted:
-                    logger.info('Skill researching, Quick Train disabled/exhausted')
-                    return False
-                result = self.quick_train_once()
-                if result == 'fed':
-                    continue
-                if result == 'no_need':
-                    # level may have advanced; loop re-reads the cards
-                    continue
+        all_done = True
+        for index in order:
+            result = self.process_skill_card(index)
+            logger.info(f'Skill card {index + 1}: {result}')
+            if result == 'out_of_books':
+                # Do not touch further cards: selecting them could move the
+                # research off the skill that still needs mission EXP
                 return False
-
-            if 'trainable' in states and self.config.MetaLab_ActivateSkills:
-                index = states.index('trainable')
-                if not self.learn_skill(TACTICS_SKILL_CARDS[index]):
-                    return False
-                continue
-
-            logger.info(f'No actionable skill (states={states}, levels={levels})')
-            return False
-        logger.warning('tactics_pass round cap reached')
-        return False
+            if result in ('in_progress', 'failed'):
+                all_done = False
+        if all_done:
+            logger.info('All skills maxed (or empty)')
+        return all_done
 
     # -------------------------------------------------------------- fortify
 
-    def read_fortify_mats(self):
+    def read_fortify_mats(self, index, timeout=3):
         """
+        Read "Materials Needed: owned/needed" of category `index` (the
+        panel docks under the selected category). Retries with fresh
+        screenshots: the panel animates after a fortify click. A capped or
+        locked category has no materials line at all -> returns zeros.
+
         Returns:
             tuple: (owned, needed), zeros when unreadable.
 
         Pages:
-            in: FORTIFY_BUTTON visible
+            in: FORTIFY_CHECK
         """
-        raw = str(OCR_FORTIFY_MATS.ocr(self.device.image)).replace(' ', '')
-        match = re.search(r'(\d+)/(\d+)', raw)
-        if match:
-            return int(match.group(1)), int(match.group(2))
-        logger.warning(f'Cannot parse fortify materials: {raw}')
-        return 0, 0
+        timer = Timer(timeout, count=5).start()
+        while 1:
+            raw = str(OCR_FORTIFY_MATS[index].ocr(self.device.image)).replace(' ', '')
+            match = re.search(r'(\d+)/(\d+)', raw)
+            if match:
+                return int(match.group(1)), int(match.group(2))
+            if timer.reached():
+                return 0, 0
+            self.device.sleep((0.4, 0.6))
+            self.device.screenshot()
 
     def fortify_pass(self):
         """
         On the Rigging Fortification screen: for each category, click
-        Fortify while the material count keeps dropping.
+        Fortify while materials suffice and the count keeps dropping.
+        Categories whose materials line is absent (capped or locked by hull
+        type) are skipped.
 
         Pages:
-            in: FORTIFY_BUTTON visible
+            in: FORTIFY_CHECK
             out: unchanged
         """
         total_clicks = 0
-        for category in FORTIFY_CATEGORIES:
+        for index, category in enumerate(FORTIFY_CATEGORIES):
             self.device.click(category)
-            self.device.sleep((0.8, 1.2))
+            self.device.sleep((1.0, 1.4))
             self.device.screenshot()
             while total_clicks < FORTIFY_CLICK_CAP:
-                owned, need = self.read_fortify_mats()
+                owned, need = self.read_fortify_mats(index)
                 if need <= 0 or owned < need:
-                    logger.info(f'Fortify {category.name}: stop (owned={owned}, need={need})')
+                    logger.info(f'Fortify {category.name}: stop (owned={owned}, '
+                                f'need={need}) - capped, locked or insufficient')
+                    break
+                if not self.appear(FORTIFY_BUTTON, offset=(20, 20)):
+                    logger.info(f'Fortify {category.name}: no Fortify button, capped')
                     break
                 self.device.click(FORTIFY_BUTTON)
                 total_clicks += 1
                 if total_clicks % 8 == 0:
                     self.device.click_record_clear()
-                self.device.sleep((0.6, 0.9))
+                self.device.sleep((1.0, 1.5))
                 self.device.screenshot()
                 if self.handle_popup_confirm('FORTIFY'):
                     self.device.screenshot()
-                new_owned, _ = self.read_fortify_mats()
+                # Milestone reward dialog ("Fortification Rate reached X%")
+                if self.handle_lab_info_dialog():
+                    self.device.sleep((0.8, 1.2))
+                    self.device.screenshot()
+                new_owned, _ = self.read_fortify_mats(index)
                 if new_owned >= owned:
                     logger.info(f'Fortify {category.name}: no material change, '
                                 'category maxed or locked')
@@ -654,8 +768,8 @@ class MetaLab(Dock):
 
     def read_activation_requirement(self):
         """
-        Read the "Level Requirement: X/Y" line. The current value is red
-        when unmet and light when met.
+        Read the "Level Requirement: X/Y" line. The current level is always
+        red, the "/required" part always light; met = current >= required.
 
         Returns:
             tuple: (current, required, met) with 0s when unreadable.
@@ -663,18 +777,15 @@ class MetaLab(Dock):
         Pages:
             in: ACT_CHECK
         """
-        white = str(OCR_ACT_REQ_WHITE.ocr(self.device.image)).replace(' ', '')
-        match = re.search(r'(\d*)/(\d+)', white)
-        if not match:
-            return 0, 0, False
-        required = int(match.group(2))
-        if match.group(1):
-            # current is light -> requirement met
-            return int(match.group(1)), required, True
+        green = str(OCR_ACT_REQ_GREEN.ocr(self.device.image)).replace(' ', '')
+        match = re.search(r'(\d+)', green)
+        if match:
+            return int(match.group(1)), 0, True
         red = str(OCR_ACT_REQ_RED.ocr(self.device.image)).replace(' ', '')
         match = re.search(r'(\d+)', red)
-        current = int(match.group(1)) if match else 0
-        return current, required, False
+        if match:
+            return int(match.group(1)), 0, False
+        return 0, 0, False
 
     def activation_pass(self):
         """
@@ -688,15 +799,15 @@ class MetaLab(Dock):
         """
         for _ in range(5):
             self.device.screenshot()
-            current, required, met = self.read_activation_requirement()
-            if required <= 0:
+            current, _, met = self.read_activation_requirement()
+            if current <= 0:
                 logger.info('No level requirement read, activation complete or unreadable')
                 return
             if not met:
-                logger.info(f'Activation level requirement not met ({current}/{required})')
+                logger.info(f'Activation level requirement not met (level {current})')
                 return
-            logger.info(f'Activation requirements met ({current}/{required}), activating')
-            before = (current, required)
+            logger.info(f'Activation requirement met (level {current}), activating')
+            before = (current, met)
             timeout = Timer(15, count=15).start()
             self.interval_clear(ACT_BUTTON)
             while 1:
@@ -706,16 +817,21 @@ class MetaLab(Dock):
                     return
                 if self.handle_popup_confirm('ACTIVATION'):
                     continue
+                if self.handle_lab_info_dialog():
+                    continue
                 if self.handle_info_bar():
                     continue
                 if self.appear(ACT_CHECK, offset=(20, 20)):
-                    current2, required2, _ = self.read_activation_requirement()
-                    if (current2, required2) != before:
-                        logger.info('Activation done, requirements now '
-                                    f'{current2}/{required2}')
+                    state = self.read_activation_requirement()
+                    if (state[0], state[2]) != before:
+                        logger.info(f'Activation done, requirement state now {state}')
                         break
                     if self.appear_then_click(ACT_BUTTON, offset=(20, 20), interval=4):
                         continue
+                    continue
+                # Full-screen star-up celebration covers ACT_CHECK
+                self.device.click(LAB_DISMISS)
+                self.device.sleep((1.0, 1.4))
 
     # ------------------------------------------------------------- per ship
 
@@ -732,11 +848,11 @@ class MetaLab(Dock):
         """
         logger.hr('Process ship', level=2)
         level = self.get_detail_level()
+        # Advisory only: the detail skill strip sits on a semi-transparent
+        # panel and is unreadable on ships with bright art. The tactics
+        # screen (opaque panel) is the authoritative skill reader.
         skills = self.read_detail_skills()
-        logger.info(f'Ship level {level}, skills {skills}')
-
-        skills_maxed = all(s == SKILL_MAX_LEVEL for s in skills if s != 'empty') \
-            and any(s != 'empty' for s in skills)
+        logger.info(f'Ship level {level}, detail skills (advisory): {skills}')
 
         if not self.lab_enter():
             return 'skip'
@@ -750,15 +866,14 @@ class MetaLab(Dock):
                     f'research={research_tag}')
 
         # Skills
-        if not skills_maxed and (self.config.MetaLab_ActivateSkills
-                                 or self.config.MetaLab_UseQuickTrain):
+        if self.config.MetaLab_ActivateSkills or self.config.MetaLab_UseQuickTrain:
             if self.hub_goto(HUB_RESEARCH, TACTICS_CHECK):
                 self.tactics_pass()
                 self.subscreen_back_to_hub()
 
         # Rigging fortification
         if self.config.MetaLab_DoFortify and fortify_badge == 'alert':
-            if self.hub_goto(HUB_FORTIFY, FORTIFY_BUTTON):
+            if self.hub_goto(HUB_FORTIFY, FORTIFY_CHECK):
                 self.fortify_pass()
                 self.subscreen_back_to_hub()
 
