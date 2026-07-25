@@ -28,6 +28,12 @@ from datetime import datetime, timedelta
 
 STORE_FILE = './config/ship_census.json'
 SCHEMA_VERSION = 1
+# Bumped whenever a reader in census.py changes what it can see. Records
+# deep-scanned by an older reader are re-scanned on the next delta run instead
+# of sitting on a stale (possibly wrong) value until StaleDays expires.
+#   1 -> 2: enhance rows judged by green dominance + bar fill, so ships whose
+#           art washed out the old brightness test stop reading "open"
+READER_VERSION = 2
 
 SHIP_DEFAULTS = {
     'name': None,
@@ -48,6 +54,7 @@ SHIP_DEFAULTS = {
     'first_seen': None,
     'last_seen': None,
     'last_deep_scan': None,
+    'reader_version': None,
 }
 
 
@@ -199,18 +206,22 @@ class CensusStore:
         ship['last_seen'] = now
         if deep:
             ship['last_deep_scan'] = now
+            ship['reader_version'] = READER_VERSION
         return ship
 
     def needs_deep_scan(self, key, level, stale_days, full=False):
         """
         Delta rule: deep-scan a ship unless we have a fresh, complete record
-        at the same level. Level can only rise, so a changed level always
-        forces a rescan; affinity drifts silently, hence the staleness window.
+        at the same level, read by the current readers. Level can only rise,
+        so a changed level always forces a rescan; affinity drifts silently,
+        hence the staleness window.
         """
         if full:
             return True
         ship = self.ships.get(key)
         if ship is None or ship.get('last_deep_scan') is None:
+            return True
+        if ship.get('reader_version') != READER_VERSION:
             return True
         if ship.get('level') != level:
             return True

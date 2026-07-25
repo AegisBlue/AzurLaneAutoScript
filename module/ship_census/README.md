@@ -7,7 +7,8 @@ help the owner decide which ships to max next; designed so a future auto-max
 task can consume the same store.
 
 **Status: working in production.** First full run recorded 142 Elite+ ships in
-~6 min; all readers offline-validated (145/145 checks) and live-verified.
+~6 min; all readers offline-validated and live-verified (145/145 checks at
+handoff, 89/89 on the enhance + fixed-skill fixes).
 
 ## Owner's requirements (decided via Q&A)
 
@@ -40,7 +41,9 @@ near-unique per ship; a failed join only nulls that ship's affinity):
 
 Files: [census.py](census.py) (task + readers), [store.py](store.py) (pure-stdlib
 JSON store: `Name#n` dupe keys, sweep cursor, delta rules, missing-flag on
-completed sweeps), [dashboard.py](dashboard.py) + [dashboard_template.html](dashboard_template.html)
+completed sweeps, `READER_VERSION` — **bump it whenever a reader changes what it
+can see**; records scanned by an older reader are re-deep-scanned on the next
+delta run instead of sitting on a stale wrong value until `StaleDays` expires), [dashboard.py](dashboard.py) + [dashboard_template.html](dashboard_template.html)
 (self-contained page; template renders demo data when opened raw),
 [ship_names_en.json](ship_names_en.json) (926 canonical EN names + rarity + the
 41-ship PR/DR research roster, distilled from AzurLaneTools/AzurLaneData),
@@ -81,9 +84,17 @@ completed sweeps), [dashboard.py](dashboard.py) + [dashboard_template.html](dash
   (letter (90,90,90), thr 160). Locked cards read "LEVEL: ??" so classify
   digits-first, then padlock template (true ≥0.99 / false ≤0.49). Gray **"?"
   cards mean "no skill in this slot"** (Enterprise-style single-skill ships) —
-  record nothing. **All Out Assault barrages never level**: the name band
-  (marquee — retry up to 3 fresh frames) is OCR'd and fuzzy-matched
-  ('assa'/'sault'/'outnsault' garbles) → recorded with max=1.
+  record nothing.
+- **Skills that never level** sit at "LEVEL: 1" forever and the card looks
+  exactly like a levelable Lv.1 skill → identified by name only, via the name
+  band (marquee: retry up to 3 fresh frames, two extractions each) fuzzy-matched
+  against `FIXED_SKILL_PATTERNS`, then recorded with max=1. Two families:
+  **All Out Assault** barrages and **Siren Killer I/II/III** on every PR/DR
+  research ship (it tracks development level, not skill books). OCR garbles the
+  stylized band, so match short fragments: 'assa'/'sault'/'ssaut'/'outnsalt'
+  and 'renkil'/'irenki' ('lsirenkiller', 'lsrenkiller', 'lirenkiller',
+  'sirenkiler' all read live). META ships' Lv.1 skills ARE levelable — don't
+  generalize "Lv.1 on a maxed ship" into a rule.
 - Names drift between runs (Live2D art moves behind the chip) → always
   canonicalize via `ship_names_en.json` (squash + difflib 0.8). Unmatched names
   stay raw (data lags newest ships, e.g. Elbe META, U-2501 — harmless).
@@ -96,10 +107,20 @@ completed sweeps), [dashboard.py](dashboard.py) + [dashboard_template.html](dash
   Shipyard and off the detail page entirely.
 - Enhance tab: entry click via template+luma search (tabs shift one slot down on
   retrofit ships); **arrival = the opaque Fill button template** (tab highlight
-  sims overlap; color counting false-positives on blue art). Rows judged by
-  bright-text activity (luma>200, count≥20) + `TEMPLATE_ENH_MAX`; the tiny MAX:N
-  labels are below OCR size. Return-to-Info verified by level-parse AND
-  not-Fill-button (bare level-parse false-positives on enhance-bar pixels).
+  sims overlap; color counting false-positives on blue art). Return-to-Info
+  verified by level-parse AND not-Fill-button (bare level-parse false-positives
+  on enhance-bar pixels).
+- Enhance rows (the panel is translucent — every judgement must ignore the art
+  behind it; the tiny MAX:N labels are below OCR size):
+  - *Enhanceable?* **Green dominance** of the "EXP:..." text, never brightness.
+    Measured: enhanceable rows 300–470 green px, MAX:0 rows exactly 0. The old
+    luma>200 test read Unicorn (Retrofit)'s capped FP/TRP rows as active (her
+    white wings shine through) and reported a fully enhanced ship as "open" —
+    same for every bright-art CVL, e.g. Independence.
+  - *Maxed?* **Bar fill** (opaque chrome: 100% yellow columns when maxed, 0%
+    otherwise) OR `TEMPLATE_ENH_MAX`. Neither alone is enough — over bright art
+    the EXP:MAX template drops to 0.685 on a maxed row while unmaxed rows reach
+    0.47, and a bar at 39/40 EXP is nearly full, hence the 0.99 ratio.
 - General rule (inherited from MetaLab): template-match only opaque chrome;
   anything over art needs luma fallback plus a non-template arrival check.
 
@@ -122,6 +143,12 @@ completed sweeps), [dashboard.py](dashboard.py) + [dashboard_template.html](dash
   script, monkeypatch `GRID_PAGE_LIMIT` / `SWEEP_SAFETY_LIMIT` small, point
   `CensusStore` at a scratch file. Set `PYTHONIOENCODING=utf-8` (cp1252 console
   crashes on μ ship names). Never run while an ALAS scheduler drives the game.
+- **Capturing one named ship** (how the Unicorn/Monarch edge cases were pinned
+  down): `ui_ensure(page_dock)` → click the magnifier (670,27) → click the field
+  (840,28) → `device.adb_shell(['input','text',name])` → keyevent 66 → click the
+  first result card (163,177) in a retry loop until `SHIP_DETAIL_CHECK` (the
+  first tap only dismisses the suggestion dropdown / IME). Beware: the search is
+  a prefix match on ALL owned ships, so "Bristol" opens Bristol META.
 
 ## Open items / future work
 
@@ -130,6 +157,10 @@ completed sweeps), [dashboard.py](dashboard.py) + [dashboard_template.html](dash
   keep the store schema versioned (`SCHEMA_VERSION` in store.py).
 - Enhance read came back null for 3 non-lab ships in run 1 — likely transient
   timeouts; delta runs retry them. Investigate if it persists.
+- The 2026-07-25 delta run ended at ship 81 of the 189 the grid pass counted
+  ("Census sweep reached the end of the dock" after 3 failed swipe retries) —
+  the swipe sweep can still die early; worth a look before trusting a run's
+  `missing` flags.
 - The dock's Stats overlay also has a Skills page (rows truncate above 2 skills
   — detail page stays authoritative) — possible future grid-only shortcut.
 - `ship_names_en.json` refresh: rebuild from AzurLaneTools/AzurLaneData when new

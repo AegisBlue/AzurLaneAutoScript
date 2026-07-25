@@ -92,20 +92,68 @@ SKILL_SLOT_AREAS = [(683 + 188 * i, 520, 871 + 188 * i, 620) for i in range(3)]
 # Skill name band at the card top (long names render as a scrolling marquee,
 # so any frame shows some 12-14 char window of the name)
 SKILL_NAME_AREAS = [(765 + 188 * i, 530, 869 + 188 * i, 562) for i in range(3)]
+# Skills that can never be leveled: their card reads "LEVEL: 1" forever, and
+# nothing on it distinguishes them from a levelable skill sitting at Lv.1, so
+# they are identified by name. Two families are known:
+#   - All Out Assault barrages (most vanguards, "All Out Assault I/II")
+#   - Siren Killer I/II/III, on every PR/DR research ship (Monarch, Ibuki,
+#     Plymouth...); it upgrades with the ship's development level, not with
+#     skill books, so a maxed ship still shows Lv.1
+# Matching is on fragments of the squashed (lowercase alnum) OCR read because
+# the model garbles the stylized band; each entry is a set of fragments that
+# must all appear. Observed reads: 'outnsault', 'outnsalt', 'butssaut n',
+# 'lsirenkiller', 'lsrenkiller', 'lirenkiller', 'sirenkiler'.
+FIXED_SKILL_PATTERNS = (
+    ('assa',),
+    ('sault',),
+    ('ssaut',),
+    ('out', 'salt'),
+    ('out', 'saul'),
+    ('out', 'ssal'),
+    ('renkil',),
+    ('irenki',),
+    ('sirenk',),
+)
+
+
+def match_fixed_skill(text):
+    """
+    Args:
+        text (str): Squashed lowercase alnum OCR of a skill name band.
+
+    Returns:
+        bool: True if the name belongs to a skill that cannot be leveled.
+    """
+    return any(all(frag in text for frag in pattern) for pattern in FIXED_SKILL_PATTERNS)
 
 # ---------------- enhance tab ----------------
 
 # Four stat rows (FP/TRP/AVI/RLD) at a 48px pitch. Each active row's right
-# end reads "EXP:MAX" (full) or "EXP:cur/next" in bright text; rows the hull
-# cannot enhance (cap MAX:0) render the same text dimmed. The tiny MAX:N
-# labels themselves are below OCR size, so activity is judged by brightness.
+# end reads "EXP:MAX" (full) or "EXP:cur/next" in bright green; rows the hull
+# cannot enhance (cap MAX:0) render the same text dimmed gray. The tiny MAX:N
+# labels themselves are below OCR size.
 ENH_ROW_PITCH = 48
-# Tight text strip for the brightness (activity) check...
+# Tight text strip for the activity check...
 ENH_EXP_AREAS = [(1178, 133 + ENH_ROW_PITCH * i, 1250, 153 + ENH_ROW_PITCH * i) for i in range(4)]
-# ...and a taller window per row for the TEMPLATE_ENH_MAX match (46x26 px)
+# ...a taller window per row for the TEMPLATE_ENH_MAX match (46x26 px)...
 ENH_MAX_AREAS = [(1166, 122 + ENH_ROW_PITCH * i, 1258, 162 + ENH_ROW_PITCH * i) for i in range(4)]
-ENH_ROW_ACTIVE_LUMA = 200
-ENH_ROW_ACTIVE_COUNT = 20
+# ...and the EXP bar between them, which is opaque chrome: solid yellow across
+# its full width exactly when that stat is maxed.
+ENH_BAR_AREAS = [(906, 137 + ENH_ROW_PITCH * i, 1171, 150 + ENH_ROW_PITCH * i) for i in range(4)]
+# Row activity is judged on GREEN DOMINANCE, never on brightness: the panel is
+# translucent, so absolute luma tracks the ship art behind it. Live bug: on
+# Unicorn (Retrofit) - a CVL, so FP and TRP are capped at MAX:0 - her white
+# wings pushed both dimmed rows past any luma threshold, the reader looked for
+# "EXP:MAX" in rows that have no EXP at all, and a fully enhanced ship reported
+# "open". Measured over bright and dark art alike: enhanceable rows carry
+# 300-470 green pixels, capped-at-zero rows exactly 0.
+ENH_GREEN_MIN = 150
+ENH_GREEN_MARGIN = 40
+ENH_ROW_ACTIVE_COUNT = 100
+# Bar fill: yellow columns / total. Measured 1.000 on every maxed row and
+# 0.000 on every unmaxed one; 0.99 keeps a nearly-full EXP bar (39/40 to the
+# next point) from passing as maxed.
+ENH_BAR_FULL_RATIO = 0.99
 # The blue "Fill" button (opaque chrome) marks the Enhance panel - tab
 # templates cannot tell selected from unselected, and color counting false-
 # positives on blue ship art
@@ -477,8 +525,9 @@ class ShipCensus(Dock):
           ships like Enterprise show them in unused slots - so they record
           NO skill rather than a pending one. Real padlock cards are skills
           gated by limit break and stay pending.
-        - All Out Assault barrages cannot be leveled and sit at Lv.1 forever;
-          the name band identifies them and they record max=1.
+        - Some skills cannot be leveled at all and sit at Lv.1 forever (All
+          Out Assault barrages, the PR/DR Siren Killer); the name band
+          identifies them and they record max=1. See FIXED_SKILL_PATTERNS.
         """
         skills = []
         for i in range(3):
@@ -488,7 +537,7 @@ class ShipCensus(Dock):
                 level = int(m.group(1))
                 if 1 <= level <= 10:
                     skill_max = 10
-                    if level < 10 and self.skill_is_barrage(image, i):
+                    if level < 10 and self.skill_is_fixed(image, i):
                         skill_max = 1
                     skills.append({'level': level, 'max': skill_max, 'locked': False})
                     continue
@@ -499,9 +548,9 @@ class ShipCensus(Dock):
             # "?" card or empty background: no skill here
         return skills
 
-    def skill_is_barrage(self, image, i):
+    def skill_is_fixed(self, image, i):
         """
-        OCR the skill name band and look for the All Out Assault family.
+        OCR the skill name band and look for a skill that cannot be leveled.
         Card chrome varies with rarity (white-on-dark and dark-on-light
         bands both exist), so both extractions are tried. Long names render
         as a scrolling marquee - a single frame can catch an unreadable
@@ -514,11 +563,8 @@ class ShipCensus(Dock):
                           letter=letter, threshold=thr, name='OCR_SKILL_NAME')
                 ocr.SHOW_LOG = False
                 text = re.sub(r'[^a-z0-9]', '', str(ocr.ocr(image)).lower())
-                # The model garbles the stylized band ("Out Assault" has read
-                # as 'outnsault' / 'outnsalt' live) - match loose fragments
-                if 'assa' in text or 'sault' in text \
-                        or ('out' in text and ('salt' in text or 'saul' in text or 'ssal' in text)):
-                    logger.info('Skill %s is an All Out Assault (read %r)' % (i + 1, text))
+                if match_fixed_skill(text):
+                    logger.info('Skill %s cannot be leveled (read %r)' % (i + 1, text))
                     return True
             if attempt >= 2 or not hasattr(self, 'device'):
                 break
@@ -552,12 +598,8 @@ class ShipCensus(Dock):
             self.device.screenshot()
             active = [self.enh_row_active(self.device.image, i) for i in range(4)]
             if any(active):
-                maxed = []
-                for i in range(4):
-                    if not active[i]:
-                        continue
-                    row_img = crop(self.device.image, ENH_MAX_AREAS[i])
-                    maxed.append(bool(TEMPLATE_ENH_MAX.match(row_img, similarity=TAB_SIM)))
+                maxed = [self.enh_row_maxed(self.device.image, i)
+                         for i in range(4) if active[i]]
                 result = all(maxed)
                 logger.info('Enhance rows active={} maxed_rows={} -> maxed={}'.format(
                     active, maxed, result))
@@ -572,11 +614,39 @@ class ShipCensus(Dock):
     @staticmethod
     def enh_row_active(image, i):
         """
-        A row the hull can enhance shows bright "EXP:..." text; capped-at-zero
-        rows render it dimmed.
+        A row the hull can enhance shows green "EXP:..." text; capped-at-zero
+        rows render it dimmed gray. Judged on green dominance because the
+        panel is translucent - see ENH_GREEN_MIN.
         """
-        luma = rgb2luma(crop(image, ENH_EXP_AREAS[i]))
-        return int(np.sum(luma > ENH_ROW_ACTIVE_LUMA)) >= ENH_ROW_ACTIVE_COUNT
+        px = crop(image, ENH_EXP_AREAS[i]).astype(int)
+        r, g, b = px[:, :, 0], px[:, :, 1], px[:, :, 2]
+        green = (g > ENH_GREEN_MIN) & (g > r + ENH_GREEN_MARGIN) & (g > b + ENH_GREEN_MARGIN)
+        return int(np.sum(green)) >= ENH_ROW_ACTIVE_COUNT
+
+    @staticmethod
+    def enh_row_bar_full(image, i):
+        """
+        The row's EXP bar is yellow end to end, i.e. that stat is maxed.
+        Column means first, so the bar's own dark border pixels and the MAX:N
+        label's descenders cannot break the run.
+        """
+        col = crop(image, ENH_BAR_AREAS[i]).astype(int).mean(axis=0)
+        r, g, b = col[:, 0], col[:, 1], col[:, 2]
+        yellow = (r > 150) & (g > 130) & (r - b > 60)
+        return float(np.mean(yellow)) >= ENH_BAR_FULL_RATIO
+
+    @classmethod
+    def enh_row_maxed(cls, image, i):
+        """
+        Two independent signals, either one is enough: the filled bar (opaque
+        chrome, so background-independent) and the "EXP:MAX" template. The
+        template alone cannot carry the decision - over bright art it sinks to
+        0.685 on a genuinely maxed row (live: Unicorn's RLD), which is under
+        any threshold that still rejects unmaxed rows (they peak at 0.47).
+        """
+        if cls.enh_row_bar_full(image, i):
+            return True
+        return bool(TEMPLATE_ENH_MAX.match(crop(image, ENH_MAX_AREAS[i]), similarity=TAB_SIM))
 
     def is_in_enhance(self):
         """The Fill button (opaque chrome) is unique to the Enhance panel."""
