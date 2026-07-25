@@ -812,6 +812,20 @@ class MetaLab(Dock):
 
     # ----------------------------------------------------------- activation
 
+    def save_debug_screenshot(self, name):
+        """
+        Dump the current screenshot for offline diagnosis of screens the
+        task does not understand yet. Folder is git-ignored.
+        """
+        import os
+        import time
+        from PIL import Image
+        folder = './screenshots/meta_lab_debug'
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, f'{name}_{int(time.time())}.png')
+        Image.fromarray(self.device.image).save(path)
+        logger.info(f'Debug screenshot saved: {path}')
+
     def read_activation_requirement(self):
         """
         Read the "Level Requirement: X/Y" line. The current level is always
@@ -860,6 +874,8 @@ class MetaLab(Dock):
             timeout = Timer(20, count=20).start()
             self.interval_clear(ACT_BUTTON)
             unreadable = 0
+            clicked = 0
+            dialog_logged = False
             while 1:
                 self.device.screenshot()
                 if timeout.reached():
@@ -877,13 +893,25 @@ class MetaLab(Dock):
                     if (state[0], state[2]) != before:
                         logger.info(f'Activation done, requirement state now {state}')
                         break
+                    if clicked >= 2:
+                        # Two clicks, an unknown dialog each time, no state
+                        # change: activation is blocked (insufficient META
+                        # Crystals or an unhandled confirmation). Do not
+                        # keep cancel-looping.
+                        logger.warning('Activation blocked by an unrecognized dialog, '
+                                       'skipping (see debug screenshot)')
+                        return
                     if self.appear_then_click(ACT_BUTTON, offset=(20, 20), interval=4):
+                        clicked += 1
                         continue
                     continue
-                # Requirement unreadable: the star-up celebration covers
-                # the screen - tap it away; persistent unreadability means
-                # the ship just reached full activation (requirements gone)
+                # Requirement unreadable: either the star-up celebration or
+                # an unknown dialog covers the screen. Photograph it once
+                # for diagnosis, then tap it away.
                 unreadable += 1
+                if clicked and not dialog_logged:
+                    self.save_debug_screenshot('activation_dialog')
+                    dialog_logged = True
                 self.device.click(LAB_DISMISS)
                 self.device.sleep((1.0, 1.4))
                 if unreadable >= 6:
