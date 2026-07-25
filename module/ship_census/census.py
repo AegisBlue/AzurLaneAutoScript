@@ -161,17 +161,38 @@ ENH_FILL_SEARCH = (950, 588, 1135, 660)
 
 # ---------------- dock grid pass (Stats overlay) ----------------
 
-# The overlay's six stat rows shift up to ~13px with the card frame style but
-# keep a constant pitch, so everything anchors on the HP label (the top-most
-# white label band): value windows sit right of the labels, capped at the
-# card edge so the neighbor card's frame stays out.
-CARD_HP_ANCHOR_REL = (2, 15, 88, 58)       # search window for the HP label
+# A card's overlay draws six evenly spaced white label rows - HP, FP, TRP,
+# AVI, RLD, Affinity - with the values right-aligned beside them. Everything
+# anchors on the HP label, whose y is SEARCHED, never assumed: the dock does
+# not land on row boundaries after a scroll (offsets of 20-50 px are normal),
+# and a fixed row geometry then reads the FP or TRP line as "HP" and the
+# affinity value off the bottom of the card. Live, that cost 45 of 105 cards
+# their affinity on one pass, and the dashboard showed "-" for those ships.
+# The six labels have distinct pixel widths (HP 21, FP 18, TRP 30, AVI 26,
+# RLD 29, Affinity 57 with an extent of ~71). "Affinity" is the only wide-but-
+# not-full-width band on a card, which makes it the landmark; HP then sits
+# exactly 127 px above it. Card frames, names and star bars span the full
+# strip (extent 85) and are excluded by the extent window. EN client only.
+CARD_AFF_LABEL_WIDTH = (48, 68)
+CARD_AFF_LABEL_EXTENT = (62, 80)
+CARD_HP_LABEL_MAX_WIDTH = 34
+CARD_AFF_OFFSET = 127                      # HP label center -> Affinity label center
+CARD_AFF_OFFSET_TOLERANCE = 8
+CARD_LABEL_REL = (2, 88)                   # label column, cell-relative x
 CARD_VALUE_X_REL = (84, 140)               # value column, right-aligned
-CARD_AFF_OFFSET = 126                      # HP label center -> Affinity row center
+CARD_GRID_TOP = 60                         # y band the dock draws cards in
+CARD_GRID_BOTTOM = 720
+CARD_ROW_SEPARATION = 60                   # min y gap between two card rows
+CARD_ROW_PITCH = 227                       # px between card rows
+CARD_LABEL_LUMA = 200
+CARD_LABEL_WIDTH = 8                       # min bright pixels in a label row
 # The Stats cycle button in the dock top bar: amber when an overlay page is
 # active (mean ~(167,122,69)), blue when off (~(66,80,119))
 STATS_BUTTON = _btn((905, 10, 970, 44), 'STATS_BUTTON')
 STATS_STATE_AREA = (860, 8, 978, 45)
+# Card area watched by wait_until_stable before reading a page - the dock
+# keeps sliding for a moment after the scroll drag lets go
+GRID_STABLE_AREA = _btn((93, 76, 1220, 700), 'GRID_STABLE_AREA')
 
 RARITY_SCOPE = {
     'elite_and_above': ['elite', 'super_rare', 'ultra_rare'],
@@ -206,7 +227,15 @@ def _load_ship_names():
 SHIP_NAMES = _load_ship_names()
 _NAME_SQUASH = {re.sub(r'[^a-z0-9]', '', n.lower()): n for n in SHIP_NAMES}
 SWEEP_SAFETY_LIMIT = 1500
-GRID_PAGE_LIMIT = 60
+GRID_PAGE_LIMIT = 200
+# Grid sweep stepping: the dock is dragged by whole card rows (see
+# grid_drag_rows). Two rows is the largest stroke that stays inside the card
+# area at both ends.
+GRID_DRAG_X = 640
+GRID_DRAG_Y = 620
+GRID_DRAG_ROWS_MAX = 2
+GRID_REWIND_LIMIT = 3
+GRID_STUCK_LIMIT = 2
 # Ship-to-ship swipe box: the stock equipment SWIPE_AREA reaches y=527, where
 # the secretary dialogue bubble swallows drags (live: a sweep died at ship 2
 # when both random swipe points landed on it)
@@ -267,7 +296,10 @@ class ShipCensus(Dock):
             return
 
         grid = self.grid_pass()
-        logger.info('Grid pass: {} cards'.format(len(grid)))
+        cards = len(grid)
+        affinity_index = self.grid_affinity_index(grid)
+        logger.info('Grid pass: {} cards, {} with affinity'.format(
+            cards, sum(len(v) for v in affinity_index.values())))
 
         # NPC rentals occupy card 1 during events; dock_enter_first skips them
         self.device.screenshot()
@@ -294,7 +326,7 @@ class ShipCensus(Dock):
         index = skip + npc_offset
         while 1:
             visited += 1
-            self.process_ship(store, grid, index, stale_days=stale_days, full=full)
+            self.process_ship(store, affinity_index, stale_days=stale_days, full=full)
             store.save()
             self.device.click_record_clear()
             index += 1
@@ -309,10 +341,10 @@ class ShipCensus(Dock):
                 if self.ship_view_next_safe():
                     advanced = True
                     break
-                if index >= len(grid):
+                if index >= cards:
                     break
                 logger.info('Swipe did not advance (attempt {}), grid expects {} more '
-                            'cards'.format(attempt + 1, len(grid) - index))
+                            'cards'.format(attempt + 1, cards - index))
                 self.device.sleep((1.5, 2.5))
                 self.device.click_record_clear()
             if not advanced:
@@ -326,20 +358,50 @@ class ShipCensus(Dock):
         # end-of-dock, or a grid pass that itself truncated - would otherwise
         # brand every ship it never reached as retired (live: a run that
         # visited 49 of ~190 ships flagged 96 records).
-        covered = complete and bool(grid) and index >= len(grid)
+        covered = complete and bool(cards) and index >= cards
         if complete and not covered:
             logger.warning('Grid pass saw {} cards but the detail pass ended at index {} - '
                            'sweep recorded as incomplete, missing flags untouched'.format(
-                               len(grid), index))
+                               cards, index))
         store.sweep_end(complete=covered)
         store.save()
         self.detail_exit_to_dock()
         self.dock_filter_set(wait_loading=False)
         logger.info('Census sweep processed {} ships this run'.format(visited))
 
-    def process_ship(self, store, grid, index, stale_days=7, full=False):
+    @staticmethod
+    def grid_affinity_index(grid):
+        """
+        Build {HP: [affinity, ...]} in dock order from the grid pass.
+
+        The detail pass consumes this by HP rather than by position. Positional
+        joins survive only while both passes agree on every card: one row read
+        twice by the grid pass (a frame caught mid-scroll, an overlap dedupe
+        that missed) shifts everything after it and every later ship silently
+        loses its affinity - live, 155 of 161 joins were rejected, each one
+        exactly one card late. HP is near-unique per ship, and duplicate copies
+        are consumed in dock order, so a stale extra entry costs at most the
+        one ship that shares its HP.
+
+        Args:
+            grid (list[(int, int)]): (hp, affinity) per card, dock order.
+
+        Returns:
+            dict[int, list[int]]:
+        """
+        index = {}
+        for hp, affinity in grid:
+            if hp and affinity is not None and 0 <= affinity <= 200:
+                index.setdefault(hp, []).append(affinity)
+        return index
+
+    def process_ship(self, store, affinity_index, stale_days=7, full=False):
         """
         Read the ship currently open on the detail page and upsert its record.
+
+        Args:
+            store (CensusStore):
+            affinity_index (dict): From grid_affinity_index, consumed in place.
 
         Pages:
             in: SHIP_DETAIL_CHECK (Info view)
@@ -355,16 +417,13 @@ class ShipCensus(Dock):
         key = store.sweep_key(name)
         logger.hr('Ship {} (Lv.{})'.format(key, level), level=2)
 
-        # Join affinity from the grid pass; trust it only if the HP values
-        # agree (HP is near-unique per ship, so a misaligned join is rejected)
+        # Join affinity from the grid pass by HP (see grid_affinity_index)
         affinity = None
-        if 0 <= index < len(grid):
-            g_hp, g_aff = grid[index]
-            if g_hp and g_hp == detail['hp'] and g_aff is not None and 0 <= g_aff <= 200:
-                affinity = g_aff
-            else:
-                logger.info('Grid join rejected at index {} (grid HP {} vs detail HP {})'.format(
-                    index, g_hp, detail['hp']))
+        pending = affinity_index.get(detail['hp']) if detail['hp'] else None
+        if pending:
+            affinity = pending.pop(0)
+        else:
+            logger.info('No grid affinity for HP {}, affinity not updated'.format(detail['hp']))
 
         oathed = detail['oath_badge'] or (affinity is not None and affinity > 100)
 
@@ -711,22 +770,20 @@ class ShipCensus(Dock):
 
     def grid_pass(self):
         """
-        With the dock's Stats overlay on its Affinity page, walk the pages and
-        read (level, affinity) per card in dock order. next_page drags 80% of
-        a viewport, so consecutive screens overlap; overlapping row
-        fingerprints are dropped before appending.
+        With the dock's Stats overlay on its Affinity page, walk the dock and
+        read (HP, affinity) per card.
 
         Returns:
-            list[(int, int)]: (level, affinity) per card, dock order.
+            list[(int, int)]: (hp, affinity) per card, dock order.
 
         Pages:
-            in: page_dock (filters applied, at top)
+            in: page_dock (filters applied)
             out: page_dock (at top, overlay off)
         """
         logger.hr('Grid pass', level=2)
-        # The game restores the dock's last scroll position across visits;
-        # both passes must start from the top or everything above the
-        # remembered position is silently skipped (observed live)
+        # The game restores the dock's last scroll position across visits, so
+        # the sweep must start from the top or everything above the remembered
+        # position is silently skipped (observed live)
         if DOCK_SCROLL.appear(main=self):
             DOCK_SCROLL.set_top(main=self)
             self.device.click_record_clear()
@@ -736,52 +793,7 @@ class ShipCensus(Dock):
                            'affinity will be missing this sweep')
             return []
 
-        entries = []
-        prev_rows = []
-        for page in range(GRID_PAGE_LIMIT):
-            self.device.screenshot()
-            rows, ended = self.read_grid_page(self.device.image)
-            # An empty cell means "past the last card" only on the last page.
-            # Anywhere else it is one bad frame - the dock still settling after
-            # the scroll drag - and accepting it truncates the whole census
-            # (live: a run read one page, called it 21 cards, and the sweep
-            # then flagged everything it never reached as missing).
-            if ended and DOCK_SCROLL.appear(main=self) and not DOCK_SCROLL.at_bottom(main=self):
-                logger.info('Grid page {} ended at {} rows but the dock is not at the '
-                            'bottom, re-reading'.format(page, len(rows)))
-                self.device.sleep((1.0, 1.4))
-                self.device.screenshot()
-                retry_rows, retry_ended = self.read_grid_page(self.device.image)
-                if len(retry_rows) > len(rows) or not retry_ended:
-                    rows, ended = retry_rows, retry_ended
-
-            # Drop the overlap with the previous screen (row-fingerprinted)
-            start = 0
-            for k in range(min(len(prev_rows), len(rows)), 0, -1):
-                if prev_rows[-k:] == rows[:k]:
-                    start = k
-                    break
-            for row in rows[start:]:
-                entries.extend(row)
-            prev_rows = rows
-
-            if ended:
-                break
-            if not DOCK_SCROLL.appear(main=self) or DOCK_SCROLL.at_bottom(main=self):
-                break
-            # Advance exactly 2 of the 3 visible rows so consecutive screens
-            # always overlap (next_page's 0.8-viewport drag skips ~2 unread
-            # rows per page - live: that nulled affinity for 132/142 ships).
-            # The scroll thumb length encodes visible/total content.
-            pos = DOCK_SCROLL.cal_position(main=self)
-            rows_total = 3.0 * DOCK_SCROLL.total / max(DOCK_SCROLL.length, 1)
-            step = 2.0 / max(rows_total - 3.0, 1.0)
-            DOCK_SCROLL.set(min(pos + step, 1.0), main=self,
-                            random_range=(-0.005, 0.005), distance_check=False)
-            # Dozens of consecutive scroll swipes are legitimate here; without
-            # this the 12-same-button safety raises GameTooManyClickError
-            self.device.click_record_clear()
-            self.device.sleep((1.0, 1.4))
+        entries = self.grid_sweep()
 
         self.overlay_set(False)
         if DOCK_SCROLL.appear(main=self):
@@ -790,59 +802,232 @@ class ShipCensus(Dock):
         self.device.sleep((0.6, 1.0))
         return entries
 
-    def read_grid_page(self, image):
+    def grid_sweep(self):
         """
-        Read the visible 7x3 grid, stopping at the first empty cell.
+        Walk the dock from top to bottom, reading every card exactly once.
+
+        The dock is moved by dragging the cards themselves, one card row
+        (CARD_ROW_PITCH px) at a time - measured live, a drag lands within a
+        few px, because ALAS's drag holds at the end and kills the fling that
+        makes a plain swipe useless. The scrollbar cannot do this job: ALAS
+        measures its thumb 46-76 px long for one and the same list, and its
+        smallest registrable drag is worth about six card rows on a full dock,
+        so a "two row" step really moved seven and 60% of the dock was never
+        read. Nothing here reads at_bottom() either - one bad thumb reading
+        makes it true, which once ended a sweep 27% in.
+
+        Each step advances one row less than the screen just read, so
+        consecutive screens always share a row; that overlap is what drops
+        repeats. The sweep ends when the screen stops changing.
 
         Returns:
-            (list[list], bool): rows of (hp, affinity) pairs, and whether an
-                empty cell was hit (i.e. this looks like the last page).
+            list[(int, int)]: (hp, affinity) per card, dock order.
         """
+        entries = []
+        prev_flat = []
+        rewinds = 0
+        stuck = 0
+        for page in range(GRID_PAGE_LIMIT):
+            rows, _ = self.read_grid_page_best(page)
+            flat = [pair for row in rows for pair in row]
+
+            if prev_flat and [hp for hp, _ in flat] == [hp for hp, _ in prev_flat]:
+                stuck += 1
+                if stuck >= GRID_STUCK_LIMIT:
+                    logger.info('Grid sweep done: {} cards over {} screens'.format(
+                        len(entries), page + 1))
+                    break
+                self.grid_drag_rows(GRID_DRAG_ROWS_MAX)
+                continue
+            stuck = 0
+
+            overlap = self.overlap_length(prev_flat, flat)
+            if prev_flat and flat and not overlap:
+                if rewinds < GRID_REWIND_LIMIT:
+                    rewinds += 1
+                    logger.info('Grid screen {} shares no card with the previous one, '
+                                'rewinding ({}/{})'.format(page, rewinds, GRID_REWIND_LIMIT))
+                    self.grid_drag_rows(-1)
+                    continue
+                logger.warning('Grid screen {} still shares no card with the previous one, '
+                               'some ships may be missing affinity'.format(page))
+            rewinds = 0
+
+            entries.extend(flat[overlap:])
+            prev_flat = flat
+            self.grid_drag_rows(min(max(len(rows) - 1, 1), GRID_DRAG_ROWS_MAX))
+        return entries
+
+    def grid_wait_stable(self):
+        """
+        Screenshot once the dock has stopped moving. Reading a frame mid-scroll
+        gives half-drawn rows: bogus HP anchors, unreadable values (live: 58 of
+        231 grid cards had no HP) and phantom rows that inflate the count.
+        """
+        self.wait_until_stable(GRID_STABLE_AREA, timer=Timer(0.3, count=1),
+                               timeout=Timer(3, count=6), skip_first_screenshot=False)
+
+    def read_grid_page_best(self, page=0, attempts=3):
+        """
+        Read the visible page, re-reading while values come back unreadable and
+        keeping the best attempt. Attempts are never merged - a read that finds
+        one card row fewer would merge rows of different ships together.
+
+        Returns:
+            (list[list], bool): rows of (hp, affinity) pairs in dock order, and
+                whether a gap was hit (i.e. this looks like the last page).
+        """
+        best = ([], False)
+        best_score = -1
+        for attempt in range(attempts):
+            self.grid_wait_stable()
+            rows, ended = self.grid_page_rows(self.read_grid_page(self.device.image))
+            cards = sum(len(row) for row in rows)
+            unreadable = sum(1 for row in rows for hp, aff in row
+                             if hp is None or aff is None)
+            if cards - unreadable > best_score:
+                best, best_score = (rows, ended), cards - unreadable
+            at_bottom = not DOCK_SCROLL.appear(main=self) or DOCK_SCROLL.at_bottom(main=self)
+            if not unreadable and (not ended or at_bottom):
+                break
+            logger.info('Grid page {}: {} cards, {} unreadable, ended={} - re-reading '
+                        '({}/{})'.format(page, cards, unreadable, ended, attempt + 1, attempts))
+            self.device.sleep((0.6, 0.9))
+        return best
+
+    def read_grid_page(self, image):
+        """
+        Locate every fully visible card on screen and read it. Rows are found,
+        not assumed - see CARD_LABEL_PITCH.
+
+        Returns:
+            list[list]: one list of 7 entries per card row, in dock order; each
+                entry is (hp, affinity) or None where that column holds no card.
+        """
+        found = []
+        for col in range(7):
+            for hp_y, aff_y in self.card_anchors(image, col):
+                found.append((hp_y, col, aff_y))
+        found.sort()
+
         rows = []
+        row_tops = []
+        for hp_y, col, aff_y in found:
+            if not rows or hp_y - row_tops[-1] > CARD_ROW_SEPARATION:
+                rows.append([None] * 7)
+                row_tops.append(hp_y)
+            rows[-1][col] = self.read_card(image, col, hp_y, aff_y)
+        return rows
+
+    @staticmethod
+    def grid_page_rows(rows):
+        """
+        Truncate a page at its first gap: cards fill the grid left to right,
+        top to bottom, so the first empty cell is the end of the dock list.
+
+        Returns:
+            (list[list], bool): rows of pairs, and whether a gap was hit.
+        """
+        out = []
         ended = False
-        for r in range(3):
-            row = []
-            for c in range(7):
-                pair = self.read_card_hp_affinity(image, c, r)
+        for row in rows:
+            keep = []
+            for pair in row:
                 if pair is None:
                     ended = True
                     break
-                row.append(pair)
-            if row:
-                rows.append(row)
+                keep.append(pair)
+            if keep:
+                out.append(keep)
             if ended:
                 break
-        return rows, ended
+        return out, ended
+
+    def grid_drag_rows(self, rows):
+        """
+        Move the dock by `rows` card rows (negative scrolls back up) by
+        dragging the cards. device.drag holds at the end of the stroke, so the
+        list stops where it is put instead of flinging on - measured live at
+        one row per CARD_ROW_PITCH px.
+        """
+        distance = int(CARD_ROW_PITCH * rows)
+        start = np.array([GRID_DRAG_X, GRID_DRAG_Y if rows > 0
+                          else GRID_DRAG_Y - GRID_DRAG_ROWS_MAX * CARD_ROW_PITCH])
+        self.device.drag(start, start - np.array([0, distance]),
+                         point_random=(-5, -5, 5, 5))
+        # Dozens of consecutive drags are legitimate here; without this the
+        # 12-same-button safety raises GameTooManyClickError
+        self.device.click_record_clear()
+        self.device.sleep((0.9, 1.3))
 
     @staticmethod
-    def card_origin(col, row):
+    def overlap_length(prev, flat):
         """
-        Cell origin for the dock's visible 7x3 grid. CARD_GRIDS only models
-        the top 2 rows; the new dock UI shows 3 (row 3's overlay rows still
-        fit above y=720). Geometry mirrors CARD_GRIDS origin/delta.
+        How many cards at the head of `flat` repeat the tail of `prev`, matched
+        on HP alone. Longest match wins; 0 means the screens do not overlap.
         """
-        return int(93 + (164 + 2 / 3) * col), int(76 + 227 * row)
+        for k in range(min(len(prev), len(flat)), 0, -1):
+            if [hp for hp, _ in prev[-k:]] == [hp for hp, _ in flat[:k]]:
+                return k
+        return 0
+
+    @staticmethod
+    def card_x(col):
+        """Left edge of dock column `col`, mirroring CARD_GRIDS geometry."""
+        return int(93 + (164 + 2 / 3) * col)
 
     @classmethod
-    def card_hp_anchor_y(cls, image, col, row):
+    def card_label_bands(cls, image, col):
         """
-        y-center of the HP label - the top-most white label band in the
-        card's upper stat area. All other overlay rows sit at fixed offsets
-        below it.
+        The white overlay label bands down one dock column.
+
+        Returns:
+            list[(int, int, int)]: (y center, bright pixel columns, extent) per
+                band, top down.
         """
-        ox, oy = cls.card_origin(col, row)
-        lx1, ly1, lx2, ly2 = CARD_HP_ANCHOR_REL
-        label_img = crop(image, (ox + lx1, oy + ly1, ox + lx2, oy + ly2))
-        mask = rgb2luma(label_img) > 200
-        row_counts = mask.sum(axis=1)
-        bands = np.where(row_counts >= 8)[0]
-        if not len(bands):
-            return None
-        top = bands[0]
-        bottom = top
-        while bottom + 1 in bands:
-            bottom += 1
-        return oy + ly1 + (top + bottom) // 2
+        lx1, lx2 = CARD_LABEL_REL
+        ox = cls.card_x(col)
+        mask = rgb2luma(crop(image, (ox + lx1, CARD_GRID_TOP, ox + lx2, CARD_GRID_BOTTOM))) \
+            > CARD_LABEL_LUMA
+        hit = mask.sum(axis=1) >= CARD_LABEL_WIDTH
+        bands = []
+        start = None
+        for i, on in enumerate(list(hit) + [False]):
+            if on and start is None:
+                start = i
+            elif not on and start is not None:
+                columns = mask[start:i].any(axis=0)
+                lit = np.where(columns)[0]
+                bands.append((CARD_GRID_TOP + (start + i - 1) // 2, int(columns.sum()),
+                              int(lit[-1] - lit[0]) if len(lit) else 0))
+                start = None
+        return bands
+
+    @classmethod
+    def card_anchors(cls, image, col):
+        """
+        Locate every fully visible card in a column, top down.
+
+        The Affinity label is the landmark (see CARD_AFF_LABEL_WIDTH) and the
+        HP label sits 127 px above it. A card cut off by the top or bottom edge
+        is missing one of the two and gets skipped - its affinity would be
+        unreadable anyway, and the page overlap catches it on the next screen.
+
+        Returns:
+            list[(int, int)]: (HP row y, Affinity row y) per card, top down.
+        """
+        bands = cls.card_label_bands(image, col)
+        anchors = []
+        for y, width, extent in bands:
+            if not (CARD_AFF_LABEL_WIDTH[0] <= width <= CARD_AFF_LABEL_WIDTH[1]
+                    and CARD_AFF_LABEL_EXTENT[0] <= extent <= CARD_AFF_LABEL_EXTENT[1]):
+                continue
+            hp = min((b for b in bands if b[1] <= CARD_HP_LABEL_MAX_WIDTH
+                      and abs(y - CARD_AFF_OFFSET - b[0]) <= CARD_AFF_OFFSET_TOLERANCE),
+                     key=lambda b: abs(y - CARD_AFF_OFFSET - b[0]), default=None)
+            if hp is not None:
+                anchors.append((hp[0], y))
+        return anchors
 
     def _read_card_value(self, image, ox, yc, name):
         vx1, vx2 = CARD_VALUE_X_REL
@@ -851,20 +1036,15 @@ class ShipCensus(Dock):
         ocr.SHOW_LOG = False
         return ocr.ocr(image)
 
-    def read_card_hp_affinity(self, image, col, row):
+    def read_card(self, image, col, hp_y, aff_y):
         """
-        (hp, affinity) from the overlay stat rows, both anchored on the HP
-        label. Affinity clamps to 0-200; None marks an unreadable field.
-        Returns None (no tuple) when the cell holds no card - the overlay
-        labels only render on cards, which doubles as the presence check
-        (the Lv. badge is too dim on plain card frames to count pixels on).
+        (hp, affinity) of the card in column `col`, read beside its own HP and
+        Affinity label rows. Either value is None when its OCR came back
+        implausible.
         """
-        yc = self.card_hp_anchor_y(image, col, row)
-        if yc is None:
-            return None
-        ox = self.card_origin(col, row)[0]
-        hp = self._read_card_value(image, ox, yc, 'CARD_HP')
-        affinity = self._read_card_value(image, ox, yc + CARD_AFF_OFFSET, 'CARD_AFF')
+        ox = self.card_x(col)
+        hp = self._read_card_value(image, ox, hp_y, 'CARD_HP')
+        affinity = self._read_card_value(image, ox, aff_y, 'CARD_AFF')
         if not 0 < hp <= 99999:
             hp = None
         if not 0 <= affinity <= 200:
@@ -873,11 +1053,11 @@ class ShipCensus(Dock):
 
     def overlay_page_is_affinity(self, image):
         """OCR card 1's bottom label: 'Affinity' names the overlay page we need."""
-        yc = self.card_hp_anchor_y(image, 0, 0)
-        if yc is None:
+        anchors = self.card_anchors(image, 0)
+        if not anchors:
             return False
-        ox = self.card_origin(0, 0)[0]
-        yc += CARD_AFF_OFFSET
+        ox = self.card_x(0)
+        yc = anchors[0][1]
         ocr = Ocr(_btn((ox + 2, yc - 14, ox + 88, yc + 14), 'OVERLAY_LABEL'), lang='cnocr',
                   letter=(255, 255, 255), threshold=128, name='OCR_OVERLAY_LABEL')
         ocr.SHOW_LOG = False

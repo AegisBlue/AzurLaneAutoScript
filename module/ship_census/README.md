@@ -6,9 +6,12 @@ dashboard at `config/ship_census_dashboard.html` (both git-ignored). Purpose:
 help the owner decide which ships to max next; designed so a future auto-max
 task can consume the same store.
 
-**Status: working in production.** First full run recorded 142 Elite+ ships in
-~6 min; all readers offline-validated and live-verified (145/145 checks at
-handoff, 89/89 on the enhance + fixed-skill fixes).
+**Status: working in production.** Readers offline-validated and live-verified
+(145/145 checks at handoff, 89/89 on the enhance + fixed-skill fixes). The grid
+pass covers 162 of 163 known ships (99.4%) and the affinity join lands on 20/20
+ships in a live smoke. **The Elite+ dock is ~550 ships**, so a full sweep is
+~45 min (grid pass ~4, detail pass the rest) — earlier runs only ever reached
+the first 80-160 before dying.
 
 ## Owner's requirements (decided via Q&A)
 
@@ -30,8 +33,10 @@ once a ship reads maxed (irreversible) or fresh within `StaleDays`.
 
 ## Architecture
 
-Two passes per sweep, joined by position with an **HP equality check** (HP is
-near-unique per ship; a failed join only nulls that ship's affinity):
+Two passes per sweep, **joined by HP** (`grid_affinity_index`: HP → affinities
+in dock order, consumed as ships are visited). A positional join drifts the
+moment either pass mis-steps by one card and every ship after it silently loses
+affinity — live, 155 of 161 joins were rejected, each exactly one card late:
 
 1. **Grid pass** — with the dock's Stats overlay on its Affinity page, read
    `(HP, affinity)` per card in dock order across all pages.
@@ -55,21 +60,33 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
 - The Stats button (905,10)-(970,44) cycles OFF → stats+Affinity → armor →
   skills → OFF. Amber mean ≈ (167,122,69) when on, blue ≈ (66,80,119) off. The
   page is identified by OCR of card 1's "Affinity" label, dynamically located.
-- Overlay stat rows shift ~13 px between oath-framed and plain cards at constant
-  pitch → anchor everything on the HP label band (top-most white band in cell-rel
-  window (2,15,88,58)); affinity row = anchor + 126. Values are state-tinted
-  (blue/white/pale-green) → `BrightDigit` (inverted-luma OCR), never color-extract.
-- Card presence = HP-anchor found. Lv.-badge white-pixel counting reads ZERO on
-  plain (non-oath) card frames — don't use it.
-- The new dock shows **3 rows (7×3)**; `CARD_GRIDS` only models 2. `card_origin()`
-  computes the third row; row 3's overlay rows still fit above y=720.
-- `DOCK_SCROLL.next_page()` drags 0.8 viewports and the dock snaps to full
-  3-row pages → rows get **skipped** between screens. Scroll row-exactly instead:
-  `rows_total = 3 * Scroll.total / Scroll.length`, step 2 rows via `set()` with
-  tight random_range, keep the row-fingerprint overlap dedupe as insurance.
+- **Card rows are never at a fixed y.** The dock does not stop on a row
+  boundary, so offsets of 20-50 px are normal and fixed geometry reads the FP or
+  TRP line as "HP" and affinity off the bottom of the card (live: 45 of 105
+  cards lost). Find the rows instead: in each column strip, the **"Affinity"
+  label is the landmark** — the only band 48-68 px wide with an extent of 62-80
+  (HP 21/24, FP 18/20, TRP 30/35, AVI 26/28, RLD 29/34; frames, names and star
+  bars span the full 85). HP is the narrow band 127 px above it. A card cut off
+  by a screen edge simply fails to pair and is skipped.
+- Values are state-tinted (blue/white/pale-green) → `BrightDigit` (inverted-luma
+  OCR), never color-extract. Read each value beside *its own* label row.
+- Card presence = an HP/Affinity label pair. Lv.-badge white-pixel counting
+  reads ZERO on plain (non-oath) card frames — don't use it.
+- **Never page the dock with `DOCK_SCROLL`.** ALAS measures the thumb 46-76 px
+  long for one and the same list, so `3 * total / length` (rows in the list) is
+  off by up to 3×; the smallest drag the scrollbar registers is worth ~6 card
+  rows on a full dock (a "2 row" step really moved 7, and 60% of the dock went
+  unread); `at_bottom()` goes true on a single bad reading and ended a sweep 27%
+  in. Drag the **cards** instead: `device.drag()` holds at the end of the stroke,
+  kills the fling a plain swipe gets, and lands one row per 227 px. Step
+  `rows_read - 1` rows so screens always share a row, dedupe on that overlap
+  (flat HP sequence — rows can be a card short mid-row), and end the sweep when
+  the screen stops changing. ~550 Elite+ cards ≈ 75 screens ≈ 4 min.
 - `set_top` before reading: the game **remembers dock scroll across visits**.
-- `device.click_record_clear()` after every scroll and resume-skip swipe —
+- `device.click_record_clear()` after every drag and resume-skip swipe —
   12 consecutive same-button actions raise GameTooManyClickError.
+- Screens are read only once `wait_until_stable` says the dock has settled, and
+  re-read (up to 3×) while any card's values come back unreadable.
 
 **Detail page**
 - The detail page lands on the Info view. Ship-to-ship swipes survive sidebar
@@ -157,13 +174,16 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   keep the store schema versioned (`SCHEMA_VERSION` in store.py).
 - Enhance read came back null for 3 non-lab ships in run 1 — likely transient
   timeouts; delta runs retry them. Investigate if it persists.
-- **The swipe sweep can still die early** — two 2026-07-25 runs stopped at 81 of
-  189 and at 49 of ~190 cards ("reached the end of the dock" after 3 failed
-  swipe retries). Since `a83e1341f` a short sweep no longer counts as complete
-  (so it can't brand unvisited ships `missing` → dashboard "gone?"), and the
-  grid pass re-reads a page that ends early while the dock isn't at the bottom,
-  but the underlying swallowed-swipe cause is unfixed. Check the ship count in
-  the log before trusting a run.
+- **The detail (swipe) sweep can still die early** — 2026-07-25 runs stopped at
+  81, 49 and 161 ships ("reached the end of the dock" after 3 failed swipe
+  retries) when the dock actually holds ~550. Since `a83e1341f` a short sweep no
+  longer counts as complete (so it can't brand unvisited ships `missing` →
+  dashboard "gone?"), but the swallowed-swipe cause is unfixed and it is now the
+  biggest gap in the feature. Check the processed-ship count in the log against
+  the grid pass's card count before trusting a run.
+- Grid pass speed: screens that straddle a row boundary read 2 rows instead of
+  3, so the sweep steps 1 row instead of 2. Nudging the dock into alignment once
+  (the anchor y says by how much) would cut the grid pass roughly in half.
 - The dock's Stats overlay also has a Skills page (rows truncate above 2 skills
   — detail page stays authoritative) — possible future grid-only shortcut.
 - `ship_names_en.json` refresh: rebuild from AzurLaneTools/AzurLaneData when new
