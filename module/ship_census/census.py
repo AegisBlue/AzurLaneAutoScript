@@ -320,10 +320,18 @@ class ShipCensus(Dock):
                 complete = True
                 break
 
-        if complete and grid and index != len(grid):
-            logger.warning('Grid pass saw {} cards but detail pass ended at index {} - '
-                           'affinity joins were level-checked per ship'.format(len(grid), index))
-        store.sweep_end(complete=complete)
+        # "Complete" must mean the whole dock was walked, because sweep_end
+        # flags every unseen in-scope ship as missing ("gone?" on the
+        # dashboard). A sweep that stopped early - a swallowed swipe read as
+        # end-of-dock, or a grid pass that itself truncated - would otherwise
+        # brand every ship it never reached as retired (live: a run that
+        # visited 49 of ~190 ships flagged 96 records).
+        covered = complete and bool(grid) and index >= len(grid)
+        if complete and not covered:
+            logger.warning('Grid pass saw {} cards but the detail pass ended at index {} - '
+                           'sweep recorded as incomplete, missing flags untouched'.format(
+                               len(grid), index))
+        store.sweep_end(complete=covered)
         store.save()
         self.detail_exit_to_dock()
         self.dock_filter_set(wait_loading=False)
@@ -732,20 +740,20 @@ class ShipCensus(Dock):
         prev_rows = []
         for page in range(GRID_PAGE_LIMIT):
             self.device.screenshot()
-            rows = []
-            ended = False
-            for r in range(3):
-                row = []
-                for c in range(7):
-                    pair = self.read_card_hp_affinity(self.device.image, c, r)
-                    if pair is None:
-                        ended = True
-                        break
-                    row.append(pair)
-                if row:
-                    rows.append(row)
-                if ended:
-                    break
+            rows, ended = self.read_grid_page(self.device.image)
+            # An empty cell means "past the last card" only on the last page.
+            # Anywhere else it is one bad frame - the dock still settling after
+            # the scroll drag - and accepting it truncates the whole census
+            # (live: a run read one page, called it 21 cards, and the sweep
+            # then flagged everything it never reached as missing).
+            if ended and DOCK_SCROLL.appear(main=self) and not DOCK_SCROLL.at_bottom(main=self):
+                logger.info('Grid page {} ended at {} rows but the dock is not at the '
+                            'bottom, re-reading'.format(page, len(rows)))
+                self.device.sleep((1.0, 1.4))
+                self.device.screenshot()
+                retry_rows, retry_ended = self.read_grid_page(self.device.image)
+                if len(retry_rows) > len(rows) or not retry_ended:
+                    rows, ended = retry_rows, retry_ended
 
             # Drop the overlap with the previous screen (row-fingerprinted)
             start = 0
@@ -781,6 +789,30 @@ class ShipCensus(Dock):
             self.device.click_record_clear()
         self.device.sleep((0.6, 1.0))
         return entries
+
+    def read_grid_page(self, image):
+        """
+        Read the visible 7x3 grid, stopping at the first empty cell.
+
+        Returns:
+            (list[list], bool): rows of (hp, affinity) pairs, and whether an
+                empty cell was hit (i.e. this looks like the last page).
+        """
+        rows = []
+        ended = False
+        for r in range(3):
+            row = []
+            for c in range(7):
+                pair = self.read_card_hp_affinity(image, c, r)
+                if pair is None:
+                    ended = True
+                    break
+                row.append(pair)
+            if row:
+                rows.append(row)
+            if ended:
+                break
+        return rows, ended
 
     @staticmethod
     def card_origin(col, row):
