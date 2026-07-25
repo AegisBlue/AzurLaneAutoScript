@@ -720,24 +720,24 @@ class MetaLab(Dock):
         self.device.screenshot()
         states = self.read_tactics_states()
 
-        # Work the researching card first: touching another card while one
-        # is researching could switch the research target.
+        # Work the researching card first, and STOP at the first card that
+        # is not finished: a ship has a single research slot, and both
+        # learning a trainable skill and Begin Research on an idle one
+        # STEAL it - touching further cards would switch the research away
+        # from the unfinished skill (observed as run-to-run ping-ponging).
         order = [i for i, s in enumerate(states) if s == 'researching'] \
             + [i for i, s in enumerate(states) if s != 'researching']
 
-        all_done = True
         for index in order:
             result = self.process_skill_card(index)
             logger.info(f'Skill card {index + 1}: {result}')
-            if result == 'out_of_books':
-                # Do not touch further cards: selecting them could move the
-                # research off the skill that still needs mission EXP
-                return False
-            if result in ('in_progress', 'failed'):
-                all_done = False
-        if all_done:
-            logger.info('All skills maxed (or empty)')
-        return all_done
+            if result in ('maxed', 'empty'):
+                continue
+            # 'in_progress', 'out_of_books' or 'failed': this card is the
+            # active project until it maxes - leave the other cards alone
+            return False
+        logger.info('All skills maxed (or empty)')
+        return True
 
     # -------------------------------------------------------------- fortify
 
