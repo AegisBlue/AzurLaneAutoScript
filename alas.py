@@ -422,6 +422,10 @@ class AzurLaneAutoScript:
         MetaLeveling(config=self.config, device=self.device).run(
             name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
 
+    def meta_lab(self):
+        from module.meta_leveling.meta_lab import MetaLab
+        MetaLab(config=self.config, device=self.device).run()
+
     def daemon(self):
         from module.daemon.daemon import AzurLaneDaemon
         AzurLaneDaemon(config=self.config, device=self.device, task="Daemon").run()

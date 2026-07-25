@@ -245,6 +245,10 @@ Reward:
       - Scheduler
       - ExpFeed
       - LimitBreak
+    # Custom task, not from upstream ALAS
+    MetaLab:
+      - Scheduler
+      - MetaLab
 
 # ==================== DailyMission ====================
 

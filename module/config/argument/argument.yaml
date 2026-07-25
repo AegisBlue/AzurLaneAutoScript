@@ -505,6 +505,18 @@ ExpFeed:
     value: false
   Favourite:
     value: false
+# Custom task, not from upstream ALAS
+MetaLab:
+  ActivateSkills:
+    value: true
+  UseQuickTrain:
+    value: true
+  T1BookReserve:
+    value: 500
+  DoFortify:
+    value: true
+  DoActivation:
+    value: true
 GeneralShop:
   UseGems: false
   Refresh: false

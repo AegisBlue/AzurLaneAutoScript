@@ -1539,6 +1539,26 @@
       "Storage": {}
     }
   },
+  "MetaLab": {
+    "Scheduler": {
+      "Enable": false,
+      "NextRun": "2020-01-01 00:00:00",
+      "Command": "MetaLab",
+      "SuccessInterval": 0,
+      "FailureInterval": 120,
+      "ServerUpdate": "00:00"
+    },
+    "MetaLab": {
+      "ActivateSkills": true,
+      "UseQuickTrain": true,
+      "T1BookReserve": 500,
+      "DoFortify": true,
+      "DoActivation": true
+    },
+    "Storage": {
+      "Storage": {}
+    }
+  },
   "Daily": {
     "Scheduler": {
       "Enable": false,

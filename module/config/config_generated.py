@@ -283,6 +283,13 @@ class GeneratedConfig:
     ExpFeed_SpendTier2 = False
     ExpFeed_Favourite = False
 
+    # Group `MetaLab`
+    MetaLab_ActivateSkills = True
+    MetaLab_UseQuickTrain = True
+    MetaLab_T1BookReserve = 500
+    MetaLab_DoFortify = True
+    MetaLab_DoActivation = True
+
     # Group `GeneralShop`
     GeneralShop_UseGems = False
     GeneralShop_Refresh = False

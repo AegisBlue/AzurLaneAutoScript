@@ -166,6 +166,10 @@
       "name": "EXP Feed",
       "help": "Custom task: feed T1 EXP Data Packs to Rare / Super Rare ships. Levels a ship to 70, maxes its limit break with bulins, then feeds it to 100."
     },
+    "MetaLab": {
+      "name": "META Lab",
+      "help": "Daily META Lab upkeep for every META ship: keep a skill researching (activating the next when one maxes), pump META Universal Skill Books into it via Quick Train, fortify rigging while materials last, and perform Somatic Activation when requirements are met. Custom task, not from upstream ALAS."
+    },
     "Daily": {
       "name": "每日任務",
       "help": ""
@@ -1788,6 +1792,32 @@
     "Favourite": {
       "name": "Feed Favourite Ships Only",
       "help": ""
+    }
+  },
+  "MetaLab": {
+    "_info": {
+      "name": "META Lab Settings",
+      "help": "Iterates every META ship in the dock (faction filter) and runs the META Lab upkeep on each. Ship leveling itself is the MetaLeveling task's job."
+    },
+    "ActivateSkills": {
+      "name": "Activate Skills",
+      "help": "Learn the next trainable skill when no skill is researching. Each learn costs 5 red T3 skill books."
+    },
+    "UseQuickTrain": {
+      "name": "Use Quick Train",
+      "help": "Feed T1 META Universal Skill Books into the researching skill until it maxes. Book EXP ignores the daily EXP cap."
+    },
+    "T1BookReserve": {
+      "name": "Keep T1 Books Above X",
+      "help": "Quick Train never spends T1 META Universal Skill Books below this reserve."
+    },
+    "DoFortify": {
+      "name": "Rigging Fortification",
+      "help": "Fortify each rigging category while materials last (4 materials per step)."
+    },
+    "DoActivation": {
+      "name": "Somatic Activation",
+      "help": "Perform Somatic Activation (star up, spends META Crystals + coins) whenever the level requirement is met."
     }
   },
   "GeneralShop": {

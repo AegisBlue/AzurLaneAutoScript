@@ -23,33 +23,33 @@ FLEET_INDEX = Digit(OCR_FLEET_INDEX, letter=(90, 154, 255), threshold=128, alpha
 OCR_DETAIL_LEVEL = Digit(_area_button((758, 283, 798, 319), 'DETAIL_LEVEL'),
                          letter=(255, 255, 255), threshold=128, name='OCR_DETAIL_LEVEL')
 
-# ---------------------------------------------------------------------------
-# Phase gate.
-# The META-specific screens (detail sidebar, skill research page, the
-# strengthening UI for limit break / rigging fortification) have no assets
-# yet. Until the capture session fills SLOT_BUTTONS and the checks below stop
-# being stubs, the maintenance pass only logs and the task behaves like a
-# plain Main farm on the configured stage.
-# ---------------------------------------------------------------------------
-MAINTENANCE_READY = False
-
-# Ship slots on the fleet formation page (page_fleet): 3 main fleet + 3
-# vanguard. Click targets, to be measured from a live capture. A plain click
-# on a slot opens the dock swap view; a long click opens the ship detail.
+# Ship slots on the fleet formation page (new Formation UI, isometric
+# platforms; surface fleet). Plain click on a slot opens the deploy picker,
+# long click opens the ship detail. main_2 and vanguard_1 match the stock
+# FLEET_ENTER_FLAGSHIP / FLEET_ENTER assets; the rest were measured from the
+# 2026-07-24 capture session (screenshots/meta_lab_capture/02_formation.png).
 SLOT_BUTTONS = {
-    'main_1': None,
-    'main_2': None,
-    'main_3': None,
-    'vanguard_1': None,
-    'vanguard_2': None,
-    'vanguard_3': None,
+    'main_1': _area_button((345, 275, 405, 325), 'SLOT_MAIN_1'),
+    'main_2': _area_button((565, 260, 620, 305), 'SLOT_MAIN_2'),
+    'main_3': _area_button((755, 240, 815, 285), 'SLOT_MAIN_3'),
+    'vanguard_1': _area_button((480, 455, 540, 505), 'SLOT_VANGUARD_1'),
+    'vanguard_2': _area_button((735, 400, 795, 450), 'SLOT_VANGUARD_2'),
+    'vanguard_3': _area_button((935, 365, 995, 415), 'SLOT_VANGUARD_3'),
 }
 
 
 class MetaLeveling(CampaignRun, Dock):
-    # Set by meta_maintenance() when every managed slot holds a maxed META
-    # ship and the dock has no unfinished META ship left to swap in.
-    all_meta_complete = False
+    """
+    Campaign farmer for META ship LEVELS. Skills / fortification / somatic
+    activation are handled by the MetaLab task; this task keeps the lowest-
+    level META ships in the designated fleet, repeats the configured stage
+    for level EXP (which also feeds the daily skill missions), and swaps a
+    ship out for a lower-level META once she reaches TargetLevel.
+    """
+
+    # Set when neither the fleet nor the dock has a META ship below
+    # TargetLevel left to level.
+    leveling_complete = False
 
     @property
     def fleet_to_attack(self):
@@ -108,15 +108,11 @@ class MetaLeveling(CampaignRun, Dock):
         """
         Yields:
             str, Button: Slot name and click target for every fleet slot this
-                task manages. The healer slot is never touched; slots without
-                measured coordinates are skipped with a warning.
+                task manages. The healer slot is never touched.
         """
         healer = self.config.MetaLeveling_HealerSlot
         for name, button in SLOT_BUTTONS.items():
             if name == healer:
-                continue
-            if button is None:
-                logger.warning(f'Fleet slot {name} has no click coordinates yet, skipped')
                 continue
             yield name, button
 
@@ -146,53 +142,15 @@ class MetaLeveling(CampaignRun, Dock):
                 logger.warning('get_detail_level timeout, OCR failed')
                 return 0
 
-    def check_skills(self):
-        """
-        Read the META skill states of the ship currently opened: which skills
-        exist, which one is actively gaining EXP from battles, which are maxed.
-        Activate the next unfinished skill when the active one is maxed.
-
-        Returns:
-            str: 'all_maxed', 'in_progress', 'unknown'
-
-        Pages:
-            in: SHIP_DETAIL_CHECK
-            out: SHIP_DETAIL_CHECK
-        """
-        # Stub until the META skill page is captured
-        logger.info('check_skills: META skill page not implemented yet, assuming in_progress')
-        return 'unknown'
-
-    def check_strengthening(self):
-        """
-        Read limit break and rigging fortification state of the ship currently
-        opened, and perform them when materials allow.
-
-        Returns:
-            str: 'all_maxed', 'in_progress', 'unknown'
-
-        Pages:
-            in: SHIP_DETAIL_CHECK
-            out: SHIP_DETAIL_CHECK
-        """
-        # Stub until the META strengthening UI is captured
-        logger.info('check_strengthening: META strengthening UI not implemented yet, '
-                    'assuming in_progress')
-        return 'unknown'
-
     def inspect_slot(self, slot, button):
         """
-        Long-click a fleet slot to open the ship detail page and read the
-        ship's progression state, then return to the formation page.
-
-        Args:
-            slot (str): Slot name for logging.
-            button (Button): Slot click target.
+        Long-click a fleet slot, read the ship's level on her detail page,
+        return to the formation page.
 
         Returns:
-            str: 'maxed'        every category done, swap her out
-                 'in_progress'  keep leveling
-                 'unknown'      could not determine, keep and continue
+            str: 'leveled'      at or above TargetLevel, swap her out
+                 'in_progress'  below TargetLevel, keep leveling
+                 'unknown'      could not read, keep
 
         Pages:
             in: page_fleet
@@ -203,40 +161,35 @@ class MetaLeveling(CampaignRun, Dock):
 
         level = self.get_detail_level()
         logger.info(f'Slot {slot}: level {level}')
-        skills = self.check_skills()
-        strengthening = self.check_strengthening()
 
         self.ui_back(check_button=page_fleet.check_button)
 
         if level == 0:
             return 'unknown'
-        if level < self.target_level:
-            return 'in_progress'
-        if skills == 'all_maxed' and strengthening == 'all_maxed':
-            return 'maxed'
-        if skills == 'unknown' or strengthening == 'unknown':
-            return 'unknown'
+        if level >= self.target_level:
+            return 'leveled'
         return 'in_progress'
 
     def get_meta_candidate(self):
         """
-        On the dock swap view, find the replacement META ship: the
-        lowest-level free META ship below the target level, not assigned to
-        any fleet. Only the first dock page is scanned; with the level sort
-        ascending the lowest ships are on it.
+        On the deploy picker, find the replacement: the lowest-level free
+        META ship below TargetLevel, not assigned to any fleet. Only the
+        first page is scanned; with ascending level sort the lowest ships
+        are on it. The REMOVE card in the first grid cell yields no level
+        and is excluded by the scanner's level limitation.
 
         Returns:
             Ship: from module.retire.scanner, or None if no candidate.
 
         Pages:
-            in: DOCK_CHECK (swap view opened from a fleet slot)
+            in: DOCK_CHECK (deploy picker opened from a fleet slot)
         """
         self.dock_favourite_set(False, wait_loading=False)
         self.dock_sort_method_dsc_set(False, wait_loading=False)
         self.dock_filter_set(faction='meta')
 
         if self.appear(DOCK_EMPTY, offset=(20, 20)):
-            logger.info('No META ship in the swap view')
+            logger.info('No META ship in the deploy picker')
             return None
 
         scanner = ShipScanner(level=(1, self.target_level - 1), emotion=(0, 150),
@@ -251,12 +204,8 @@ class MetaLeveling(CampaignRun, Dock):
 
     def swap_slot(self, slot, button):
         """
-        Plain-click a fleet slot to open the dock swap view and put the best
+        Plain-click a fleet slot to open the deploy picker and put the best
         replacement META ship into it.
-
-        Args:
-            slot (str): Slot name for logging.
-            button (Button): Slot click target.
 
         Returns:
             str: 'swapped' or 'no_candidate'
@@ -300,36 +249,35 @@ class MetaLeveling(CampaignRun, Dock):
 
     def meta_maintenance(self):
         """
-        The between-batches pass: inspect every managed fleet slot, swap out
-        finished META ships, keep skills progressing. Sets all_meta_complete
-        when nothing is left to level.
+        The between-batches pass: check every managed fleet slot and swap
+        out ships that reached TargetLevel. Sets leveling_complete when the
+        whole fleet is leveled and the dock has nobody left to swap in.
 
         Returns:
             bool: True if the fleet is ready to keep farming.
 
         Pages:
             in: Any
-            out: page_fleet if maintenance ran, unchanged otherwise
+            out: page_fleet
         """
-        logger.hr('META maintenance', level=1)
-        if not MAINTENANCE_READY:
-            logger.info('META maintenance skipped: META screen assets not captured yet. '
-                        'Farming continues with the fleet as it is.')
-            return True
-
+        logger.hr('META fleet maintenance', level=1)
         self.ui_goto_fleet()
         results = {}
         for slot, button in self.managed_slots():
             status = self.inspect_slot(slot, button)
-            if status == 'maxed':
+            if status == 'leveled':
                 status = self.swap_slot(slot, button)
             results[slot] = status
             self.device.click_record_clear()
-        logger.info(f'META maintenance results: {results}')
+        logger.info(f'META fleet maintenance results: {results}')
 
-        # Every managed slot is done and the dock has nobody left to swap in
         if results and all(status == 'no_candidate' for status in results.values()):
-            self.all_meta_complete = True
+            self.leveling_complete = True
+            return False
+        # Farming is useful as long as one managed slot is still leveling
+        if results and not any(status in ('in_progress', 'swapped', 'unknown')
+                               for status in results.values()):
+            logger.warning('No slot is leveling and some could not be swapped')
             return False
         return True
 
@@ -351,9 +299,10 @@ class MetaLeveling(CampaignRun, Dock):
 
         while 1:
             ready = self.meta_maintenance()
-            if self.all_meta_complete:
-                logger.hr('All META ships are fully maxed', level=1)
-                logger.info('MetaLeveling has nothing left to do and disables itself.')
+            if self.leveling_complete:
+                logger.hr('All META ships are at TargetLevel', level=1)
+                logger.info('MetaLeveling has no ship left to level and disables itself. '
+                            'MetaLab keeps handling skills/fortification/activation.')
                 self.config.Scheduler_Enable = False
                 self.config.task_stop()
             if not ready:
@@ -366,7 +315,7 @@ class MetaLeveling(CampaignRun, Dock):
                 batch = min(batch, total - farmed)
                 if batch <= 0:
                     break
-            logger.hr(f'Farm {batch} runs until the next META check', level=1)
+            logger.hr(f'Farm {batch} runs until the next fleet check', level=1)
             super().run(name=name, folder=folder, mode=mode, total=batch)
             farmed += self.run_count
 
