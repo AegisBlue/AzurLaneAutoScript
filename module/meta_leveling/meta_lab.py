@@ -883,6 +883,11 @@ class MetaLab(Dock):
                     return
                 if self.handle_popup_confirm('ACTIVATION'):
                     continue
+                # "Are you sure you want this ship to undergo Somatic
+                # Activation?" Info dialog (appears at higher star tiers)
+                if self.appear_then_click(ACT_POPUP_CONFIRM, offset=(30, 30), interval=3):
+                    timeout.reset()
+                    continue
                 if self.handle_lab_info_dialog():
                     continue
                 if self.handle_info_bar():
