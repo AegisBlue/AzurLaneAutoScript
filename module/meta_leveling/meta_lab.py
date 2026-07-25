@@ -859,6 +859,49 @@ class MetaLab(Dock):
         required_raw = str(OCR_ACT_REQ_WHITE.ocr(self.device.image)).replace(' ', '')
         return current, required_raw, met
 
+    def wait_activation_requirement(self, skip_first_screenshot=True):
+        """
+        Patient read of the level requirement line. A single-frame read
+        races the screen: the subscreen fades in on entry, and right after
+        an activation the star-up celebration covers the panel - one
+        unreadable frame does NOT mean the requirement is gone (that race
+        cut every activation chain to a single star). Wait the first
+        frames out (overlays fade in dimmed; an early tap cancels
+        dialogs), then tap between reads to clear celebrations, and only
+        call the requirement gone after the full timeout (fully activated
+        ships keep an empty requirement line).
+
+        Returns:
+            tuple: (current, required_raw, met), (0, '', False) when the
+                requirement stayed unreadable for the whole timeout.
+
+        Pages:
+            in: somatic activation screen (possibly under an overlay)
+        """
+        timeout = Timer(12, count=8).start()
+        unreadable = 0
+        while 1:
+            if skip_first_screenshot:
+                skip_first_screenshot = False
+            else:
+                self.device.screenshot()
+            if self.handle_lab_info_dialog():
+                self.device.sleep((0.8, 1.2))
+                continue
+            if self.appear_then_click(ACT_POPUP_CONFIRM, offset=(30, 30), interval=3):
+                continue
+            if self.handle_info_bar():
+                continue
+            state = self.read_activation_requirement()
+            if state[0] > 0:
+                return state
+            if timeout.reached():
+                return 0, '', False
+            unreadable += 1
+            if unreadable > 2:
+                self.device.click(LAB_DISMISS)
+            self.device.sleep((0.8, 1.2))
+
     def activation_pass(self):
         """
         On the Somatic Activation screen: press Activation while the level
@@ -873,8 +916,7 @@ class MetaLab(Dock):
             out: unchanged (or celebration dismissed)
         """
         for _ in range(5):
-            self.device.screenshot()
-            current, required_raw, met = self.read_activation_requirement()
+            current, required_raw, met = self.wait_activation_requirement()
             if current <= 0:
                 logger.info('No level requirement read, activation complete or unreadable')
                 return
@@ -884,7 +926,7 @@ class MetaLab(Dock):
             logger.info(f'Activation requirement met (level {current}, '
                         f'tier {required_raw}), activating')
             before = (met, required_raw)
-            timeout = Timer(20, count=20).start()
+            timeout = Timer(30, count=20).start()
             self.interval_clear(ACT_BUTTON)
             unreadable = 0
             clicked = 0
@@ -938,8 +980,11 @@ class MetaLab(Dock):
                 self.device.click(LAB_DISMISS)
                 self.device.sleep((1.0, 1.4))
                 if unreadable >= 8:
-                    logger.info('Requirement gone, activation chain complete')
-                    return
+                    # Celebration outlasted this loop: hand back to the
+                    # chain loop, whose patient read decides between a
+                    # next tier and a truly finished ship.
+                    logger.info('Requirement still covered, re-reading for a next tier')
+                    break
 
     # ------------------------------------------------------------- per ship
 
