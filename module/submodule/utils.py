@@ -21,6 +21,7 @@ def get_available_func():
         'AzurLaneUncensored',
         'Benchmark',
         'GameManager',
+        'ShipCensus',
     )
 
 
