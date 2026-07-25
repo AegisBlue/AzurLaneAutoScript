@@ -2042,6 +2042,19 @@
           "vanguard_3"
         ]
       },
+      "ClearerSlot": {
+        "type": "select",
+        "value": "vanguard_1",
+        "option": [
+          "none",
+          "main_1",
+          "main_2",
+          "main_3",
+          "vanguard_1",
+          "vanguard_2",
+          "vanguard_3"
+        ]
+      },
       "ActivateSkills": {
         "type": "checkbox",
         "value": true

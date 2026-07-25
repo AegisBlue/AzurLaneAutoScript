@@ -384,6 +384,7 @@
       "CheckInterval": 10,
       "TargetLevel": 120,
       "HealerSlot": "main_2",
+      "ClearerSlot": "vanguard_1",
       "ActivateSkills": true,
       "DoLimitBreak": true,
       "DoFortification": true

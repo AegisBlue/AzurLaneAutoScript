@@ -162,6 +162,7 @@ class GeneratedConfig:
     MetaLeveling_CheckInterval = 10
     MetaLeveling_TargetLevel = 120
     MetaLeveling_HealerSlot = 'main_2'  # none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3
+    MetaLeveling_ClearerSlot = 'vanguard_1'  # none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3
     MetaLeveling_ActivateSkills = True
     MetaLeveling_DoLimitBreak = True
     MetaLeveling_DoFortification = True

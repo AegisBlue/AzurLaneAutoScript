@@ -295,6 +295,9 @@ MetaLeveling:
   HealerSlot:
     value: main_2
     option: [ none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3 ]
+  ClearerSlot:
+    value: vanguard_1
+    option: [ none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3 ]
   ActivateSkills:
     value: true
   DoLimitBreak:

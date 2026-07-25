@@ -108,11 +108,15 @@ class MetaLeveling(CampaignRun, Dock):
         """
         Yields:
             str, Button: Slot name and click target for every fleet slot this
-                task manages. The healer slot is never touched.
+                task manages. The healer slot and the clearer slot (the
+                mob-clearing carry in the vanguard) are never touched.
         """
-        healer = self.config.MetaLeveling_HealerSlot
+        reserved = {
+            self.config.MetaLeveling_HealerSlot,
+            self.config.MetaLeveling_ClearerSlot,
+        }
         for name, button in SLOT_BUTTONS.items():
-            if name == healer:
+            if name in reserved:
                 continue
             yield name, button
 

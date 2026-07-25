@@ -1291,6 +1291,17 @@
       "vanguard_2": "Vanguard slot 2",
       "vanguard_3": "Vanguard slot 3"
     },
+    "ClearerSlot": {
+      "name": "Clearer Slot",
+      "help": "The fleet slot your mob-clearing carry sits in (a strong vanguard ship that does the actual killing while the METAs leech EXP). This slot is never inspected or swapped. Set to none if not used.",
+      "none": "none",
+      "main_1": "Main fleet slot 1",
+      "main_2": "Main fleet slot 2 (flagship)",
+      "main_3": "Main fleet slot 3",
+      "vanguard_1": "Vanguard slot 1",
+      "vanguard_2": "Vanguard slot 2",
+      "vanguard_3": "Vanguard slot 3"
+    },
     "ActivateSkills": {
       "name": "Manage Skill Activation",
       "help": "Keep one unfinished skill actively gaining EXP on each META ship, and activate the next one when it maxes."
