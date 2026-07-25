@@ -200,4 +200,6 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
 - `0eea0436b` AOA skills, "?" slots, grid-pass coverage
 - `ffa558f0b` enhance false-negatives (translucent panel), Siren Killer /
   fixed-level skills, store `READER_VERSION`
-- `a83e1341f` short sweeps no longer flag ships `missing`; grid-page re-read rewrite
+- `a83e1341f` short sweeps no longer flag ships `missing`; grid-page re-read
+- `ce288dcd7` affinity join keyed on HP; grid rows found by their labels; dock
+  paged by card drags instead of the scrollbar rewrite
