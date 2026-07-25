@@ -17,6 +17,7 @@ dev_tools/debug_tools
 *.lock
 config/reloadflag
 config/reloadalas
+config/ship_census_dashboard.html
 test.py
 test/
 

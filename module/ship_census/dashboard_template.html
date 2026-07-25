@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ship Census</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface:     #fcfcfb;
+    --ink:         #0b0b0b;
+    --ink-2:       #52514e;
+    --ink-muted:   #898781;
+    --grid:        #e1e0d9;
+    --baseline:    #c3c2b7;
+    --border:      rgba(11,11,11,0.10);
+    --accent:      #2a78d6;   /* sequential blue 450 — progress fills */
+    --accent-soft: #cde2fb;   /* sequential blue 100 — track wash */
+    --good:        #0ca30c;
+    --good-text:   #006300;
+    --warning:     #fab219;
+    --critical:    #d03b3b;
+    --r-normal:    #898781;
+    --r-rare:      #5598e7;
+    --r-elite:     #9085e9;
+    --r-sr:        #eda100;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:        #0d0d0d;
+      --surface:     #1a1a19;
+      --ink:         #ffffff;
+      --ink-2:       #c3c2b7;
+      --ink-muted:   #898781;
+      --grid:        #2c2c2a;
+      --baseline:    #383835;
+      --border:      rgba(255,255,255,0.10);
+      --accent:      #3987e5;
+      --accent-soft: #184f95;
+      --good-text:   #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:        #0d0d0d;
+    --surface:     #1a1a19;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --ink-muted:   #898781;
+    --grid:        #2c2c2a;
+    --baseline:    #383835;
+    --border:      rgba(255,255,255,0.10);
+    --accent:      #3987e5;
+    --accent-soft: #184f95;
+    --good-text:   #0ca30c;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; margin-bottom: 6px; }
+  h1 { font-size: 20px; margin: 0; }
+  .meta-line { color: var(--ink-muted); font-size: 12px; }
+  .spacer { flex: 1; }
+
+  .banner {
+    border: 1px solid var(--border); border-left: 3px solid var(--warning);
+    background: var(--surface); border-radius: 6px;
+    padding: 8px 12px; margin: 10px 0; font-size: 13px; color: var(--ink-2);
+  }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+  .tile {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .tile .label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-muted); }
+  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .tile .sub { font-size: 12px; color: var(--ink-2); }
+  .tile .value.good { color: var(--good-text); }
+
+  .remain { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+  .remain span {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 10px; font-size: 12px; color: var(--ink-2);
+  }
+  .remain b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 14px;
+  }
+  .controls input[type=search] {
+    flex: 1 1 160px; min-width: 140px;
+    background: var(--page); color: var(--ink);
+    border: 1px solid var(--baseline); border-radius: 6px; padding: 6px 10px; font: inherit;
+  }
+  .controls select {
+    background: var(--page); color: var(--ink);
+    border: 1px solid var(--baseline); border-radius: 6px; padding: 6px 8px; font: inherit;
+  }
+  .chip {
+    border: 1px solid var(--baseline); border-radius: 999px; background: var(--page);
+    color: var(--ink-2); padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent); }
+  .chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .seg { display: inline-flex; border: 1px solid var(--baseline); border-radius: 6px; overflow: hidden; }
+  .seg button {
+    border: 0; background: var(--page); color: var(--ink-2); padding: 6px 12px; font: inherit; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+  h2 { font-size: 14px; margin: 18px 0 8px; color: var(--ink-2); font-weight: 600; }
+  .nextup { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+  .nu-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  }
+  .nu-card .nm { font-weight: 600; }
+  .nu-card .lv { color: var(--ink-muted); font-size: 12px; margin-left: 6px; }
+  .missing-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .mchip {
+    font-size: 11px; border-radius: 4px; padding: 1px 7px;
+    background: var(--page); border: 1px solid var(--baseline); color: var(--ink-2);
+  }
+
+  .tablecard { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 900px; }
+  th, td { text-align: left; padding: 7px 10px; border-top: 1px solid var(--grid); white-space: nowrap; }
+  thead th {
+    border-top: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--ink-muted); font-weight: 600; position: sticky; top: 0; background: var(--surface);
+  }
+  td.num, th.num { font-variant-numeric: tabular-nums; }
+  tr.missing-row { opacity: .45; }
+  .nm-cell .copy { color: var(--ink-muted); font-size: 11px; margin-left: 4px; }
+  .badge {
+    font-size: 10px; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px;
+    border: 1px solid var(--baseline); color: var(--ink-2);
+  }
+  .rar { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 12px; }
+  .rar .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .dot.r-normal { background: var(--r-normal); }
+  .dot.r-rare { background: var(--r-rare); }
+  .dot.r-elite { background: var(--r-elite); }
+  .dot.r-super_rare { background: var(--r-sr); }
+  .dot.r-ultra_rare { background: conic-gradient(#e34948,#eda100,#1baf7a,#2a78d6,#9085e9,#e34948); }
+  .dot.r-unknown { background: transparent; border: 1px dashed var(--baseline); }
+
+  .bar { display: inline-block; width: 92px; height: 6px; background: var(--grid); border-radius: 4px; vertical-align: 2px; margin-right: 8px; }
+  .bar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+  .bar.full i { background: var(--good); }
+
+  .ok    { color: var(--good-text); }
+  .pend  { color: var(--ink-2); }
+  .na    { color: var(--ink-muted); }
+  .unk   { color: var(--ink-muted); }
+  .state-icon { margin-right: 4px; }
+
+  .cellbtn {
+    border: 1px solid var(--baseline); background: var(--page); color: var(--ink-2);
+    border-radius: 4px; font-size: 11px; padding: 1px 6px; cursor: pointer;
+  }
+  .cellbtn[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent); }
+
+  .done-badge {
+    font-size: 11px; font-weight: 600; color: var(--good-text);
+    border: 1px solid var(--good); border-radius: 4px; padding: 1px 7px;
+  }
+  .empty {
+    padding: 40px 16px; text-align: center; color: var(--ink-2);
+  }
+  footer { margin-top: 14px; color: var(--ink-muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Ship Census</h1>
+    <span class="meta-line" id="meta-line"></span>
+    <span class="spacer"></span>
+    <span class="seg" role="group" aria-label="Level cap">
+      <button id="cap120" aria-pressed="true">Cap 120</button>
+      <button id="cap125" aria-pressed="false">Cap 125</button>
+    </span>
+    <button class="chip" id="theme-btn" title="Theme">Theme: auto</button>
+  </header>
+
+  <div class="banner" id="scan-banner" hidden></div>
+
+  <div class="tiles" id="tiles"></div>
+  <div class="remain" id="remain"></div>
+
+  <div class="controls">
+    <input type="search" id="search" placeholder="Search ship name…" aria-label="Search ship name">
+    <span id="rarity-chips"></span>
+    <select id="status-filter" aria-label="Status filter">
+      <option value="all">All ships</option>
+      <option value="incomplete" selected>Incomplete only</option>
+      <option value="complete">Complete only</option>
+      <option value="unknown">Needs scan data</option>
+    </select>
+    <select id="sort" aria-label="Sort">
+      <option value="closest" selected>Sort: closest to complete</option>
+      <option value="progress_asc">Sort: least complete</option>
+      <option value="level">Sort: level</option>
+      <option value="name">Sort: name</option>
+      <option value="rarity">Sort: rarity</option>
+    </select>
+    <button class="chip" id="meta-toggle" aria-pressed="true">META ships</button>
+  </div>
+
+  <h2 id="nextup-h">Next up — closest to complete</h2>
+  <div class="nextup" id="nextup"></div>
+
+  <h2>All ships</h2>
+  <div class="tablecard">
+    <table>
+      <thead>
+        <tr>
+          <th>Ship</th>
+          <th>Rarity</th>
+          <th class="num">Level</th>
+          <th class="num">Affinity</th>
+          <th>Enhance</th>
+          <th class="num">Limit break</th>
+          <th>Skills</th>
+          <th>Progress</th>
+          <th>To finish</th>
+          <th>125?</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden></div>
+  </div>
+
+  <footer>
+    “—” means not collected yet (run the Ship Census tool in ALAS → Tools).
+    “n/a” fields don’t apply to that ship (META ships enhance via the META Lab).
+    The “125?” pin marks ships you intend to take to Lv.125; pins and the cap
+    toggle are saved in this browser.
+  </footer>
+</div>
+
+<script>
+'use strict';
+const RAW = /*__CENSUS_DATA__*/null;
+
+// Demo payload so the committed template renders standalone.
+const DEMO = {
+  generated: 'demo data', scan: { in_progress: false, cursor: 0 },
+  ships: [
+    { key:'Bismarck#1', name:'Bismarck', copy:1, rarity:'super_rare', is_meta:false, level:120, affinity:200, oathed:true, enhance_maxed:true, lb_current:3, lb_max:3, skills:[{level:10,max:10,locked:false},{level:10,max:10,locked:false},{level:10,max:10,locked:false}], cognition_awakened:false, missing:false, last_deep_scan:'2026-07-20 12:00:00' },
+    { key:'Laffey#1', name:'Laffey', copy:1, rarity:'elite', is_meta:false, level:118, affinity:100, oathed:false, enhance_maxed:true, lb_current:3, lb_max:3, skills:[{level:10,max:10,locked:false},{level:8,max:10,locked:false}], cognition_awakened:false, missing:false, last_deep_scan:'2026-07-21 09:00:00' },
+    { key:'Kirov#1', name:'Kirov', copy:1, rarity:'super_rare', is_meta:true, level:100, affinity:73, oathed:false, enhance_maxed:null, lb_current:6, lb_max:6, skills:[{level:3,max:10,locked:false},{level:9,max:10,locked:false},{level:0,max:10,locked:true}], cognition_awakened:false, missing:false, last_deep_scan:'2026-07-22 03:00:00' },
+    { key:'Javelin#1', name:'Javelin', copy:1, rarity:'elite', is_meta:false, level:70, affinity:61, oathed:false, enhance_maxed:false, lb_current:1, lb_max:3, skills:[{level:4,max:10,locked:false},{level:1,max:10,locked:false}], cognition_awakened:false, missing:false, last_deep_scan:'2026-07-22 03:10:00' },
+    { key:'New Jersey#1', name:'New Jersey', copy:1, rarity:'ultra_rare', is_meta:false, level:125, affinity:200, oathed:true, enhance_maxed:true, lb_current:3, lb_max:3, skills:[{level:10,max:10,locked:false},{level:10,max:10,locked:false},{level:10,max:10,locked:false}], cognition_awakened:true, missing:false, last_deep_scan:'2026-07-19 20:00:00' },
+    { key:'Cassin#1', name:'Cassin', copy:1, rarity:'rare', is_meta:false, level:100, affinity:100, oathed:false, enhance_maxed:true, lb_current:3, lb_max:3, skills:[{level:10,max:10,locked:false}], cognition_awakened:false, missing:false, last_deep_scan:'2026-07-22 03:20:00' },
+    { key:'Unicorn#1', name:'Unicorn', copy:1, rarity:'elite', is_meta:false, level:105, affinity:147, oathed:true, enhance_maxed:null, lb_current:null, lb_max:null, skills:[], cognition_awakened:null, missing:false, last_deep_scan:null },
+    { key:'Unicorn#2', name:'Unicorn', copy:2, rarity:'elite', is_meta:false, level:1, affinity:50, oathed:false, enhance_maxed:false, lb_current:0, lb_max:3, skills:[{level:1,max:10,locked:false},{level:1,max:10,locked:false}], cognition_awakened:false, missing:false, last_deep_scan:'2026-07-22 03:30:00' },
+    { key:'Z23#1', name:'Z23', copy:1, rarity:'elite', is_meta:false, level:88, affinity:92, oathed:false, enhance_maxed:false, lb_current:2, lb_max:3, skills:[{level:6,max:10,locked:false},{level:5,max:10,locked:false}], cognition_awakened:false, missing:true, last_deep_scan:'2026-06-30 10:00:00' }
+  ]
+};
+
+const DATA = RAW || DEMO;
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem('shipcensus.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('shipcensus.' + k, JSON.stringify(v)); } catch (e) {} }
+};
+
+const state = {
+  cap: LS.get('cap', 120),
+  theme: LS.get('theme', 'auto'),
+  pins125: LS.get('pins125', {}),          // key -> true: this ship targets 125
+  search: '',
+  rarities: {},                            // rarity -> pressed
+  status: 'incomplete',
+  sort: 'closest',
+  includeMeta: true
+};
+
+const RARITY_ORDER = { ultra_rare: 0, super_rare: 1, elite: 2, rare: 3, normal: 4 };
+const RARITY_LABEL = { ultra_rare: 'UR', super_rare: 'SR', elite: 'Elite', rare: 'Rare', normal: 'Normal' };
+
+function capFor(ship) {
+  return state.pins125[ship.key] ? 125 : state.cap;
+}
+
+// One criterion -> {state: 'done'|'pending'|'na'|'unknown', text}
+function judge(ship) {
+  const cap = capFor(ship);
+  const c = {};
+  c.level = ship.level == null ? ['unknown', '—']
+    : [ship.level >= cap ? 'done' : 'pending', ship.level + '/' + cap];
+  c.affinity = ship.affinity == null ? ['unknown', '—']
+    : [ship.affinity >= 100 ? 'done' : 'pending', String(ship.affinity)];
+  c.enhance = ship.is_meta ? ['na', 'n/a']
+    : ship.enhance_maxed == null ? ['unknown', '—']
+    : [ship.enhance_maxed ? 'done' : 'pending', ship.enhance_maxed ? 'MAX' : 'open'];
+  c.lb = (ship.lb_current == null || ship.lb_max == null) ? ['unknown', '—']
+    : [ship.lb_current >= ship.lb_max ? 'done' : 'pending', ship.lb_current + '/' + ship.lb_max];
+  if (ship.is_meta && c.lb[1] !== '—') c.lb[1] += '★';
+  c.skills = !ship.skills || !ship.skills.length ? ['unknown', '—']
+    : [ship.skills.every(s => !s.locked && s.level >= s.max) ? 'done' : 'pending',
+       ship.skills.map(s => s.locked ? '🔒' : s.level).join('·')];
+  return c;
+}
+
+const CRIT_LABEL = { level: 'Level', affinity: 'Affinity', enhance: 'Enhance', lb: 'Limit break', skills: 'Skills' };
+
+function summarize(ship) {
+  const c = judge(ship);
+  let done = 0, applicable = 0, unknown = 0;
+  const missing = [];
+  for (const k of Object.keys(c)) {
+    const st = c[k][0];
+    if (st === 'na') continue;
+    applicable++;
+    if (st === 'done') done++;
+    else { missing.push(CRIT_LABEL[k]); if (st === 'unknown') unknown++; }
+  }
+  return {
+    crit: c, done, applicable, unknown, missing,
+    progress: applicable ? done / applicable : 0,
+    complete: applicable > 0 && done === applicable
+  };
+}
+
+function fmtState(pair, extraClass) {
+  const st = pair[0], text = pair[1];
+  const cls = st === 'done' ? 'ok' : st === 'pending' ? 'pend' : st === 'na' ? 'na' : 'unk';
+  const icon = st === 'done' ? '<span class="state-icon">✓</span>' : '';
+  return '<span class="' + cls + ' ' + (extraClass || '') + '">' + icon + text + '</span>';
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function shipsInView() {
+  const q = state.search.trim().toLowerCase();
+  const anyRarity = Object.values(state.rarities).some(Boolean);
+  return DATA.ships.map(s => ({ ship: s, sum: summarize(s) })).filter(({ ship, sum }) => {
+    if (!state.includeMeta && ship.is_meta) return false;
+    if (q && !(ship.name || '').toLowerCase().includes(q)) return false;
+    if (anyRarity && !state.rarities[ship.rarity || 'unknown']) return false;
+    if (state.status === 'incomplete' && sum.complete) return false;
+    if (state.status === 'complete' && !sum.complete) return false;
+    if (state.status === 'unknown' && sum.unknown === 0) return false;
+    return true;
+  });
+}
+
+function sortView(view) {
+  const by = state.sort;
+  view.sort((a, b) => {
+    if (by === 'closest') {
+      if (a.sum.complete !== b.sum.complete) return a.sum.complete ? 1 : -1;
+      const miss = a.sum.missing.length - b.sum.missing.length;
+      if (miss) return miss;
+      return (b.ship.level || 0) - (a.ship.level || 0);
+    }
+    if (by === 'progress_asc') return a.sum.progress - b.sum.progress;
+    if (by === 'level') return (b.ship.level || 0) - (a.ship.level || 0);
+    if (by === 'name') return (a.ship.name || '').localeCompare(b.ship.name || '');
+    if (by === 'rarity') {
+      const r = (RARITY_ORDER[a.ship.rarity] ?? 9) - (RARITY_ORDER[b.ship.rarity] ?? 9);
+      return r || (b.ship.level || 0) - (a.ship.level || 0);
+    }
+    return 0;
+  });
+  return view;
+}
+
+function render() {
+  document.getElementById('cap120').setAttribute('aria-pressed', state.cap === 120);
+  document.getElementById('cap125').setAttribute('aria-pressed', state.cap === 125);
+  document.getElementById('meta-toggle').setAttribute('aria-pressed', state.includeMeta);
+
+  const all = DATA.ships.map(s => ({ ship: s, sum: summarize(s) }));
+  const complete = all.filter(x => x.sum.complete).length;
+  const nearly = all.filter(x => !x.sum.complete && x.sum.missing.length === 1).length;
+  const unscanned = all.filter(x => x.sum.unknown > 0).length;
+
+  document.getElementById('meta-line').textContent =
+    'generated ' + (DATA.generated || '?') + (RAW ? '' : ' — DEMO DATA');
+
+  const banner = document.getElementById('scan-banner');
+  if (DATA.scan && DATA.scan.in_progress) {
+    banner.hidden = false;
+    banner.textContent = '⚠ Scan sweep unfinished (' + (DATA.scan.cursor || 0) +
+      ' ships processed) — run the Ship Census tool again to resume; data below is partial.';
+  } else banner.hidden = true;
+
+  document.getElementById('tiles').innerHTML =
+    tile('Ships tracked', all.length, '') +
+    tile('Complete', complete, all.length ? Math.round(100 * complete / all.length) + '%' : '', complete > 0) +
+    tile('One thing missing', nearly, 'closest wins') +
+    tile('Need scan data', unscanned, 'fields still “—”');
+
+  const remain = { level: 0, affinity: 0, enhance: 0, lb: 0, skills: 0 };
+  for (const { sum } of all)
+    for (const k of Object.keys(remain))
+      if (sum.crit[k][0] === 'pending' || sum.crit[k][0] === 'unknown') remain[k]++;
+  document.getElementById('remain').innerHTML =
+    Object.keys(remain).map(k => '<span>' + CRIT_LABEL[k] + ' left: <b>' + remain[k] + '</b></span>').join('');
+
+  renderRarityChips(all);
+
+  const view = sortView(shipsInView());
+
+  const nu = view.filter(x => !x.sum.complete && !x.ship.missing).slice(0, 6);
+  document.getElementById('nextup').innerHTML = nu.map(({ ship, sum }) =>
+    '<div class="nu-card"><span class="nm">' + esc(ship.name || ship.key) + '</span>' +
+    '<span class="lv">Lv.' + (ship.level == null ? '—' : ship.level) + '</span>' +
+    '<div class="missing-chips">' + sum.missing.map(m => '<span class="mchip">' + m + '</span>').join('') + '</div></div>'
+  ).join('') || '<div class="nu-card">Nothing pending in this view 🎉</div>';
+  document.getElementById('nextup-h').hidden = document.getElementById('nextup').hidden = state.status === 'complete';
+
+  const rows = document.getElementById('rows');
+  rows.innerHTML = view.map(({ ship, sum }) => {
+    const c = sum.crit;
+    const pct = Math.round(100 * sum.progress);
+    const nameBits = esc(ship.name || ship.key) +
+      (ship.copy > 1 ? '<span class="copy">#' + ship.copy + '</span>' : '') +
+      (ship.oathed ? ' <span title="Oathed">💍</span>' : '') +
+      (ship.cognition_awakened ? ' <span title="Cognition awakened">🧠</span>' : '') +
+      (ship.is_meta ? '<span class="badge">META</span>' : '') +
+      (ship.missing ? '<span class="badge" title="Not seen in the last full sweep">gone?</span>' : '');
+    return '<tr' + (ship.missing ? ' class="missing-row"' : '') + '>' +
+      '<td class="nm-cell">' + nameBits + '</td>' +
+      '<td><span class="rar"><span class="dot r-' + (ship.rarity || 'unknown') + '"></span>' + (RARITY_LABEL[ship.rarity] || '—') + '</span></td>' +
+      '<td class="num">' + fmtState(c.level) + '</td>' +
+      '<td class="num">' + fmtState(c.affinity) + '</td>' +
+      '<td>' + fmtState(c.enhance) + '</td>' +
+      '<td class="num">' + fmtState(c.lb) + '</td>' +
+      '<td class="num">' + fmtState(c.skills) + '</td>' +
+      '<td><span class="bar' + (sum.complete ? ' full' : '') + '"><i style="width:' + pct + '%"></i></span>' +
+        '<span class="num">' + pct + '%</span></td>' +
+      '<td>' + (sum.complete ? '<span class="done-badge">✓ COMPLETE</span>'
+                : sum.missing.map(m => '<span class="mchip">' + m + '</span>').join(' ')) + '</td>' +
+      '<td><button class="cellbtn pin125" data-key="' + esc(ship.key) + '" aria-pressed="' +
+        !!state.pins125[ship.key] + '">125</button></td>' +
+      '</tr>';
+  }).join('');
+
+  const empty = document.getElementById('empty');
+  if (!view.length) {
+    empty.hidden = false;
+    empty.textContent = DATA.ships.length
+      ? 'No ships match the current filters.'
+      : 'No census data yet — run ALAS → Tools → Ship Census, then regenerate this dashboard.';
+  } else empty.hidden = true;
+
+  for (const btn of rows.querySelectorAll('.pin125')) {
+    btn.addEventListener('click', () => {
+      const k = btn.dataset.key;
+      if (state.pins125[k]) delete state.pins125[k]; else state.pins125[k] = true;
+      LS.set('pins125', state.pins125);
+      render();
+    });
+  }
+}
+
+function tile(label, value, sub, good) {
+  return '<div class="tile"><div class="label">' + label + '</div>' +
+    '<div class="value' + (good ? ' good' : '') + '">' + value + '</div>' +
+    (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
+}
+
+function renderRarityChips(all) {
+  const present = new Set(all.map(x => x.ship.rarity || 'unknown'));
+  const order = ['ultra_rare', 'super_rare', 'elite', 'rare', 'normal', 'unknown'];
+  const host = document.getElementById('rarity-chips');
+  host.innerHTML = order.filter(r => present.has(r)).map(r =>
+    '<button class="chip rchip" data-r="' + r + '" aria-pressed="' + !!state.rarities[r] + '">' +
+    '<span class="dot r-' + r + '"></span>' + (RARITY_LABEL[r] || '?') + '</button>'
+  ).join(' ');
+  for (const btn of host.querySelectorAll('.rchip')) {
+    btn.addEventListener('click', () => {
+      state.rarities[btn.dataset.r] = !state.rarities[btn.dataset.r];
+      render();
+    });
+  }
+}
+
+function applyTheme() {
+  const t = state.theme;
+  if (t === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('theme-btn').textContent = 'Theme: ' + t;
+}
+
+document.getElementById('cap120').addEventListener('click', () => { state.cap = 120; LS.set('cap', 120); render(); });
+document.getElementById('cap125').addEventListener('click', () => { state.cap = 125; LS.set('cap', 125); render(); });
+document.getElementById('theme-btn').addEventListener('click', () => {
+  state.theme = state.theme === 'auto' ? 'dark' : state.theme === 'dark' ? 'light' : 'auto';
+  LS.set('theme', state.theme); applyTheme();
+});
+document.getElementById('search').addEventListener('input', e => { state.search = e.target.value; render(); });
+document.getElementById('status-filter').addEventListener('change', e => { state.status = e.target.value; render(); });
+document.getElementById('sort').addEventListener('change', e => { state.sort = e.target.value; render(); });
+document.getElementById('meta-toggle').addEventListener('click', () => { state.includeMeta = !state.includeMeta; render(); });
+
+applyTheme();
+render();
+</script>
+</body>
+</html>

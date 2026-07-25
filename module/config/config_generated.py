@@ -491,5 +491,10 @@ class GeneratedConfig:
     # Group `GameManager`
     GameManager_AutoRestart = True
 
+    # Group `ShipCensus`
+    ShipCensus_ScanMode = 'delta'  # delta, full, dashboard_only
+    ShipCensus_RarityScope = 'elite_and_above'  # elite_and_above, rare_and_above, all
+    ShipCensus_StaleDays = 7
+
     # Group `Storage`
     Storage_Storage = {}

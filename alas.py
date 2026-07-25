@@ -450,6 +450,10 @@ class AzurLaneAutoScript:
         from module.daemon.game_manager import GameManager
         GameManager(config=self.config, device=self.device, task="GameManager").run()
 
+    def ship_census(self):
+        from module.ship_census.census import ShipCensus
+        ShipCensus(config=self.config, device=self.device, task="ShipCensus").run()
+
     def wait_until(self, future):
         """
         Wait until a specific time.

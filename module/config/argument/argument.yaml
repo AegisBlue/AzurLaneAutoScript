@@ -831,3 +831,11 @@ AzurLaneUncensored:
     display: disabled
 GameManager:
   AutoRestart: true
+ShipCensus:
+  ScanMode:
+    value: delta
+    option: [ delta, full, dashboard_only ]
+  RarityScope:
+    value: elite_and_above
+    option: [ elite_and_above, rare_and_above, all ]
+  StaleDays: 7

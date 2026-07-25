@@ -2126,5 +2126,15 @@
     "Storage": {
       "Storage": {}
     }
+  },
+  "ShipCensus": {
+    "ShipCensus": {
+      "ScanMode": "delta",
+      "RarityScope": "elite_and_above",
+      "StaleDays": 7
+    },
+    "Storage": {
+      "Storage": {}
+    }
   }
 }

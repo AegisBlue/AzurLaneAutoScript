@@ -293,6 +293,10 @@
     "GameManager": {
       "name": "遊戲管理器(未完成)",
       "help": ""
+    },
+    "ShipCensus": {
+      "name": "Ship Census",
+      "help": "Scan the dock and record every ship's level, affinity, enhance, limit break and skill levels, then generate the completion dashboard (config/ship_census_dashboard.html)."
     }
   },
   "Scheduler": {
@@ -2803,6 +2807,30 @@
     "AutoRestart": {
       "name": "自動登錄",
       "help": "遊戲被強制結束後自動登錄遊戲"
+    }
+  },
+  "ShipCensus": {
+    "_info": {
+      "name": "Ship Census Settings",
+      "help": "Walks the dock ship by ship and records progression data into config/ship_census.json, then regenerates the dashboard. Safe to stop anytime - the sweep resumes where it left off."
+    },
+    "ScanMode": {
+      "name": "Scan Mode",
+      "help": "delta: quick pass, only deep-scans new/changed/stale ships.\nfull: re-reads every ship from scratch.\ndashboard_only: no scanning, just regenerate the dashboard from stored data.",
+      "delta": "Delta (only new/changed ships)",
+      "full": "Full rescan",
+      "dashboard_only": "Dashboard only (no scan)"
+    },
+    "RarityScope": {
+      "name": "Rarity Scope",
+      "help": "Which rarities the census covers. Commons are usually retire fodder and cost real scan time.",
+      "elite_and_above": "Elite and above",
+      "rare_and_above": "Rare and above",
+      "all": "All rarities"
+    },
+    "StaleDays": {
+      "name": "Rescan After (days)",
+      "help": "Delta mode: even unchanged ships get a fresh deep scan when their data is older than this many days (affinity grows silently with sorties)."
     }
   },
   "Storage": {

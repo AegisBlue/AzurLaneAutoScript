@@ -369,3 +369,5 @@ Tool:
       - AzurLaneUncensored
     GameManager:
       - GameManager
+    ShipCensus:
+      - ShipCensus

@@ -10132,5 +10132,39 @@
         "display": "disabled"
       }
     }
+  },
+  "ShipCensus": {
+    "ShipCensus": {
+      "ScanMode": {
+        "type": "select",
+        "value": "delta",
+        "option": [
+          "delta",
+          "full",
+          "dashboard_only"
+        ]
+      },
+      "RarityScope": {
+        "type": "select",
+        "value": "elite_and_above",
+        "option": [
+          "elite_and_above",
+          "rare_and_above",
+          "all"
+        ]
+      },
+      "StaleDays": {
+        "type": "input",
+        "value": 7
+      }
+    },
+    "Storage": {
+      "Storage": {
+        "type": "storage",
+        "value": {},
+        "valuetype": "ignore",
+        "display": "disabled"
+      }
+    }
   }
 }
