@@ -89,6 +89,9 @@ SKILL_LEVEL_OCRS = [
     for i in range(3)
 ]
 SKILL_SLOT_AREAS = [(683 + 188 * i, 520, 871 + 188 * i, 620) for i in range(3)]
+# Skill name band at the card top (long names render as a scrolling marquee,
+# so any frame shows some 12-14 char window of the name)
+SKILL_NAME_AREAS = [(765 + 188 * i, 530, 869 + 188 * i, 562) for i in range(3)]
 
 # ---------------- enhance tab ----------------
 
@@ -166,10 +169,8 @@ CENSUS_SWIPE_AREA = Button(area=(225, 180, 570, 430), color=(),
 STAR_TOTAL_VALID = (5, 6)
 STAR_SIM = 0.75
 TAB_SIM = 0.70
-# Calibrated on captures: padlock true>=0.99 / false<=0.49; "?" true>=0.79 /
-# false<=0.76 (the "?" check only runs after LEVEL OCR claimed unlocked cards)
+# Calibrated on captures: padlock true>=0.99 / false<=0.49
 SKILL_LOCK_SIM = 0.75
-SKILL_UNKNOWN_SIM = 0.78
 
 
 class ShipCensus(Dock):
@@ -469,8 +470,15 @@ class ShipCensus(Dock):
         Classify the three skill slots. A parseable "LEVEL: N" box wins
         (locked cards read "LEVEL: ??" which never parses); then the padlock
         card (calibration: true 0.99+ vs false <=0.49); then the gray "?"
-        hidden-slot card (true 0.79+ vs false <=0.76 - safe only because
-        unlocked cards were already claimed by the OCR). Nothing -> no skill.
+        card. Nothing -> no skill.
+
+        Semantics (user-reported edge cases):
+        - "?" cards mean "no skill in this slot (currently)" - single-skill
+          ships like Enterprise show them in unused slots - so they record
+          NO skill rather than a pending one. Real padlock cards are skills
+          gated by limit break and stay pending.
+        - All Out Assault barrages cannot be leveled and sit at Lv.1 forever;
+          the name band identifies them and they record max=1.
         """
         skills = []
         for i in range(3):
@@ -479,17 +487,45 @@ class ShipCensus(Dock):
             if m and 'LEV' in text.upper().replace('9', 'E'):
                 level = int(m.group(1))
                 if 1 <= level <= 10:
-                    skills.append({'level': level, 'max': 10, 'locked': False})
+                    skill_max = 10
+                    if level < 10 and self.skill_is_barrage(image, i):
+                        skill_max = 1
+                    skills.append({'level': level, 'max': skill_max, 'locked': False})
                     continue
             slot_img = crop(image, SKILL_SLOT_AREAS[i])
             if TEMPLATE_SKILL_LOCKED.match(slot_img, similarity=SKILL_LOCK_SIM):
                 skills.append({'level': 0, 'max': 10, 'locked': True})
                 continue
-            if TEMPLATE_SKILL_UNKNOWN.match(slot_img, similarity=SKILL_UNKNOWN_SIM):
-                skills.append({'level': 0, 'max': 10, 'locked': True})
-                continue
-            # No readable card in this slot: ship has fewer than 3 skills
+            # "?" card or empty background: no skill here
         return skills
+
+    def skill_is_barrage(self, image, i):
+        """
+        OCR the skill name band and look for the All Out Assault family.
+        Card chrome varies with rarity (white-on-dark and dark-on-light
+        bands both exist), so both extractions are tried. Long names render
+        as a scrolling marquee - a single frame can catch an unreadable
+        window (missed live on U-81), so up to two fresh frames are retried
+        when a device is attached.
+        """
+        for attempt in range(3):
+            for letter, thr in ((255, 255, 255), 128), ((70, 75, 85), 128):
+                ocr = Ocr(_btn(SKILL_NAME_AREAS[i], 'SKILL_NAME_%s' % (i + 1)), lang='cnocr',
+                          letter=letter, threshold=thr, name='OCR_SKILL_NAME')
+                ocr.SHOW_LOG = False
+                text = re.sub(r'[^a-z0-9]', '', str(ocr.ocr(image)).lower())
+                # The model garbles the stylized band ("Out Assault" has read
+                # as 'outnsault' / 'outnsalt' live) - match loose fragments
+                if 'assa' in text or 'sault' in text \
+                        or ('out' in text and ('salt' in text or 'saul' in text or 'ssal' in text)):
+                    logger.info('Skill %s is an All Out Assault (read %r)' % (i + 1, text))
+                    return True
+            if attempt >= 2 or not hasattr(self, 'device'):
+                break
+            self.device.sleep((0.5, 0.7))
+            self.device.screenshot()
+            image = self.device.image
+        return False
 
     # ---------------- enhance tab ----------------
 
@@ -610,6 +646,13 @@ class ShipCensus(Dock):
             out: page_dock (at top, overlay off)
         """
         logger.hr('Grid pass', level=2)
+        # The game restores the dock's last scroll position across visits;
+        # both passes must start from the top or everything above the
+        # remembered position is silently skipped (observed live)
+        if DOCK_SCROLL.appear(main=self):
+            DOCK_SCROLL.set_top(main=self)
+            self.device.click_record_clear()
+            self.device.sleep((0.6, 1.0))
         if not self.overlay_set(True):
             logger.warning('Could not reach the Affinity overlay page, '
                            'affinity will be missing this sweep')
@@ -621,11 +664,10 @@ class ShipCensus(Dock):
             self.device.screenshot()
             rows = []
             ended = False
-            for r in range(2):
+            for r in range(3):
                 row = []
                 for c in range(7):
-                    i = r * 7 + c
-                    pair = self.read_card_hp_affinity(self.device.image, i)
+                    pair = self.read_card_hp_affinity(self.device.image, c, r)
                     if pair is None:
                         ended = True
                         break
@@ -635,7 +677,7 @@ class ShipCensus(Dock):
                 if ended:
                     break
 
-            # Drop the overlap with the previous screen (0, 1 or 2 rows)
+            # Drop the overlap with the previous screen (row-fingerprinted)
             start = 0
             for k in range(min(len(prev_rows), len(rows)), 0, -1):
                 if prev_rows[-k:] == rows[:k]:
@@ -649,7 +691,15 @@ class ShipCensus(Dock):
                 break
             if not DOCK_SCROLL.appear(main=self) or DOCK_SCROLL.at_bottom(main=self):
                 break
-            DOCK_SCROLL.next_page(main=self)
+            # Advance exactly 2 of the 3 visible rows so consecutive screens
+            # always overlap (next_page's 0.8-viewport drag skips ~2 unread
+            # rows per page - live: that nulled affinity for 132/142 ships).
+            # The scroll thumb length encodes visible/total content.
+            pos = DOCK_SCROLL.cal_position(main=self)
+            rows_total = 3.0 * DOCK_SCROLL.total / max(DOCK_SCROLL.length, 1)
+            step = 2.0 / max(rows_total - 3.0, 1.0)
+            DOCK_SCROLL.set(min(pos + step, 1.0), main=self,
+                            random_range=(-0.005, 0.005), distance_check=False)
             # Dozens of consecutive scroll swipes are legitimate here; without
             # this the 12-same-button safety raises GameTooManyClickError
             self.device.click_record_clear()
@@ -663,13 +713,22 @@ class ShipCensus(Dock):
         return entries
 
     @staticmethod
-    def card_hp_anchor_y(image, index):
+    def card_origin(col, row):
+        """
+        Cell origin for the dock's visible 7x3 grid. CARD_GRIDS only models
+        the top 2 rows; the new dock UI shows 3 (row 3's overlay rows still
+        fit above y=720). Geometry mirrors CARD_GRIDS origin/delta.
+        """
+        return int(93 + (164 + 2 / 3) * col), int(76 + 227 * row)
+
+    @classmethod
+    def card_hp_anchor_y(cls, image, col, row):
         """
         y-center of the HP label - the top-most white label band in the
         card's upper stat area. All other overlay rows sit at fixed offsets
         below it.
         """
-        ox, oy = CARD_GRIDS.buttons[index].area[:2]
+        ox, oy = cls.card_origin(col, row)
         lx1, ly1, lx2, ly2 = CARD_HP_ANCHOR_REL
         label_img = crop(image, (ox + lx1, oy + ly1, ox + lx2, oy + ly2))
         mask = rgb2luma(label_img) > 200
@@ -683,15 +742,14 @@ class ShipCensus(Dock):
             bottom += 1
         return oy + ly1 + (top + bottom) // 2
 
-    def _read_card_value(self, image, index, yc, name):
-        ox = CARD_GRIDS.buttons[index].area[0]
+    def _read_card_value(self, image, ox, yc, name):
         vx1, vx2 = CARD_VALUE_X_REL
         ocr = BrightDigit(_btn((ox + vx1, yc - 13, ox + vx2, yc + 13), name),
                           letter=(255, 255, 255), threshold=128, name='OCR_' + name)
         ocr.SHOW_LOG = False
         return ocr.ocr(image)
 
-    def read_card_hp_affinity(self, image, index):
+    def read_card_hp_affinity(self, image, col, row):
         """
         (hp, affinity) from the overlay stat rows, both anchored on the HP
         label. Affinity clamps to 0-200; None marks an unreadable field.
@@ -699,11 +757,12 @@ class ShipCensus(Dock):
         labels only render on cards, which doubles as the presence check
         (the Lv. badge is too dim on plain card frames to count pixels on).
         """
-        yc = self.card_hp_anchor_y(image, index)
+        yc = self.card_hp_anchor_y(image, col, row)
         if yc is None:
             return None
-        hp = self._read_card_value(image, index, yc, 'CARD_HP')
-        affinity = self._read_card_value(image, index, yc + CARD_AFF_OFFSET, 'CARD_AFF')
+        ox = self.card_origin(col, row)[0]
+        hp = self._read_card_value(image, ox, yc, 'CARD_HP')
+        affinity = self._read_card_value(image, ox, yc + CARD_AFF_OFFSET, 'CARD_AFF')
         if not 0 < hp <= 99999:
             hp = None
         if not 0 <= affinity <= 200:
@@ -712,10 +771,10 @@ class ShipCensus(Dock):
 
     def overlay_page_is_affinity(self, image):
         """OCR card 1's bottom label: 'Affinity' names the overlay page we need."""
-        yc = self.card_hp_anchor_y(image, 0)
+        yc = self.card_hp_anchor_y(image, 0, 0)
         if yc is None:
             return False
-        ox = CARD_GRIDS.buttons[0].area[0]
+        ox = self.card_origin(0, 0)[0]
         yc += CARD_AFF_OFFSET
         ocr = Ocr(_btn((ox + 2, yc - 14, ox + 88, yc + 14), 'OVERLAY_LABEL'), lang='cnocr',
                   letter=(255, 255, 255), threshold=128, name='OCR_OVERLAY_LABEL')
