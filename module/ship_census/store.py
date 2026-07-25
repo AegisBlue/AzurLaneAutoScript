@@ -11,6 +11,7 @@ Schema v1 record fields (None / [] = not collected yet):
     copy                1-based duplicate counter in sweep order
     rarity              'elite' / 'super_rare' / 'ultra_rare' / 'rare' / 'normal'
     is_meta             bool - META ships have no Enhance/LimitBreak, they use the Lab
+    is_research         bool - PR/DR research ships enhance via the Shipyard instead
     level               int
     affinity            float, 0-200 (100 = Love, >100 only after oath)
     oathed              bool
@@ -33,7 +34,9 @@ SHIP_DEFAULTS = {
     'copy': 1,
     'rarity': None,
     'is_meta': False,
+    'is_research': False,
     'level': None,
+    'hp': None,
     'affinity': None,
     'oathed': None,
     'enhance_maxed': None,

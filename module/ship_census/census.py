@@ -1,50 +1,175 @@
 """
 ShipCensus - Tools-section task that walks the dock and records every ship's
-progression state (level, affinity, enhance, limit break, skill levels) into
-config/ship_census.json, then regenerates the standalone dashboard at
+progression state (level, affinity, enhance, limit break stars, skill levels)
+into config/ship_census.json, then regenerates the standalone dashboard at
 config/ship_census_dashboard.html.
 
-Phase A scaffold: the sweep loop, store and dashboard are complete; the
-detail-page readers below need a capture session to cut OCR areas/assets and
-are gated behind READERS_READY. Until then only ScanMode=dashboard_only does
-anything useful (renders whatever the store already holds).
-
-Iteration strategy (same as ExpFeed): enter the first filtered dock card, then
-swipe ship-to-ship on the detail page - the list is frozen while browsing, so
-one pass covers the dock without paging. CAUTION for Phase B: MetaLab learned
-that leaving the detail context (into the META Lab) drops the browsing
-context; if visiting the Enhance/LimitBreak/Info tabs turns out to do the
-same, switch this loop to MetaLab's grid iteration (dock_card_present /
-dock_enter_card / DOCK_SCROLL paging) instead of swipes.
+Reader design (capture session 2026-07-25, screenshots/ship_census_capture/):
+- The detail page lands on the Info view, which shows name, level, the star
+  row (gold = current, dark = remaining -> limit break state, METAs included)
+  and all three skill cards ("LEVEL: N" / padlock "Locked" / gray "?") in one
+  frame. Only the enhance state needs a sidebar tab visit, and a ship once
+  enhance-maxed stays maxed, so delta runs skip that visit.
+- Exact affinity (0-200) is NOT on the detail page; the dock's Stats overlay
+  (cycles OFF -> stats+Affinity -> armor -> skills -> OFF) prints it on every
+  card. A grid pass reads (level, affinity) per card in dock order before the
+  detail pass, and records join by position with a level sanity check.
+- ship_view_next swipes survive sidebar tab visits and Archive detours
+  (verified live), so one swipe sweep covers the whole filtered dock.
+- Sidebar tabs shift down one slot on retrofit-capable ships and the top slot
+  reads "Research" on METAs - tabs are template-searched, never fixed-position.
 """
+import difflib
+import json
+import os
+import re
+
+import cv2
+import numpy as np
+
 from module.base.button import Button
 from module.base.timer import Timer
+from module.base.utils import crop, rgb2luma
 from module.logger import logger
-from module.ocr.ocr import Digit
-from module.retire.assets import DOCK_CHECK, DOCK_EMPTY, SHIP_DETAIL_CHECK
-from module.retire.dock import Dock
+from module.ocr.ocr import Digit, Ocr
+from module.retire.assets import DOCK_EMPTY, DOCK_FIRST_NPC, SHIP_DETAIL_CHECK
+from module.retire.dock import CARD_GRIDS, DOCK_SCROLL, Dock
+from module.ship_census.assets import *
 from module.ship_census.dashboard import generate_dashboard
 from module.ship_census.store import CensusStore
 from module.ui.assets import BACK_ARROW
 from module.ui.page import page_dock
 
-# Phase B gate: detail-page readers (name, affinity, skills, enhance, limit
-# break, rarity, META detection) need a capture session before the sweep can
-# store anything. Flip only when every reader below is implemented.
-READERS_READY = False
 
-# Ship level on the detail page, right of the "Level:" label - same area
-# ExpFeed reads in production (module/exp_feed/exp_feed.py).
-OCR_DETAIL_LEVEL = Digit(
-    Button(area=(758, 283, 798, 319), color=(), button=(758, 283, 798, 319), name='DETAIL_LEVEL'),
-    letter=(255, 255, 255), threshold=128, name='OCR_CENSUS_LEVEL')
+def _btn(area, name):
+    return Button(area=area, color=(), button=area, name=name)
+
+
+class BrightDigit(Digit):
+    """
+    Digit OCR for bright text of ANY hue on a dark backdrop. The dock
+    overlay tints values by state (blue below 100 affinity, white, pale
+    green at caps), so color-similarity extraction fails; plain inverted
+    luma feeds the model letters-dark-on-light regardless of hue.
+    """
+
+    def pre_process(self, image):
+        return cv2.subtract(255, rgb2luma(image))
+
+
+# ---------------- detail page (Info view) ----------------
+
+# Ship level right of the "Level:" label - same area ExpFeed reads in production
+OCR_DETAIL_LEVEL = Digit(_btn((758, 283, 798, 319), 'DETAIL_LEVEL'),
+                         letter=(255, 255, 255), threshold=128, name='OCR_CENSUS_LEVEL')
+# HP value on the Info view's stats panel - the join key against the grid
+# pass (white digits; the green "+N" gear/enhance bonus fails white extraction)
+OCR_DETAIL_HP = Digit(_btn((748, 328, 868, 364), 'DETAIL_HP'),
+                      letter=(255, 255, 255), threshold=128, name='OCR_CENSUS_HP')
+# Ship name chip; x>=210 excludes the hull-type badge (DD/CVL/...). The
+# edit-pencil icon trails the name at a varying x and OCRs as junk that
+# _clean_name strips. cnocr model: azur_lane leetspeaks stylized names.
+OCR_NAME = Ocr(_btn((210, 88, 448, 116), 'SHIP_NAME'), lang='cnocr',
+               letter=(255, 255, 255), threshold=128, name='OCR_CENSUS_NAME')
+# Star row above the name chip, centered: gold stars = current, dark = missing
+STAR_AREA = (240, 50, 430, 95)
+# Affinity tier badge ("Oath" dove and friends) floats right of the name chip
+TIER_AREA = (535, 98, 695, 180)
+# Sidebar top slot region: "Research" here = META ship (they have no
+# Enhance/LimitBreak); retrofit ships push Enhance down one slot
+SIDEBAR_TOP_AREA = (0, 125, 110, 235)
+SIDEBAR_AREA = (0, 125, 110, 600)
+# Skill cards: three slots; the "LEVEL: N" box sits bottom-right of each.
+# Text is dark slate (or gold at max) on a light box - gray extraction at
+# threshold 160 read every unlocked card in calibration.
+SKILL_LEVEL_OCRS = [
+    Ocr(_btn((768 + 188 * i, 570, 868 + 188 * i, 612), 'SKILL_%s' % (i + 1)),
+        lang='azur_lane', letter=(90, 90, 90), threshold=160,
+        name='OCR_SKILL_%s' % (i + 1))
+    for i in range(3)
+]
+SKILL_SLOT_AREAS = [(683 + 188 * i, 520, 871 + 188 * i, 620) for i in range(3)]
+
+# ---------------- enhance tab ----------------
+
+# Four stat rows (FP/TRP/AVI/RLD) at a 48px pitch. Each active row's right
+# end reads "EXP:MAX" (full) or "EXP:cur/next" in bright text; rows the hull
+# cannot enhance (cap MAX:0) render the same text dimmed. The tiny MAX:N
+# labels themselves are below OCR size, so activity is judged by brightness.
+ENH_ROW_PITCH = 48
+# Tight text strip for the brightness (activity) check...
+ENH_EXP_AREAS = [(1178, 133 + ENH_ROW_PITCH * i, 1250, 153 + ENH_ROW_PITCH * i) for i in range(4)]
+# ...and a taller window per row for the TEMPLATE_ENH_MAX match (46x26 px)
+ENH_MAX_AREAS = [(1166, 122 + ENH_ROW_PITCH * i, 1258, 162 + ENH_ROW_PITCH * i) for i in range(4)]
+ENH_ROW_ACTIVE_LUMA = 200
+ENH_ROW_ACTIVE_COUNT = 20
+# The blue "Fill" button (opaque chrome) marks the Enhance panel - tab
+# templates cannot tell selected from unselected, and color counting false-
+# positives on blue ship art
+ENH_FILL_SEARCH = (950, 588, 1135, 660)
+
+# ---------------- dock grid pass (Stats overlay) ----------------
+
+# The overlay's six stat rows shift up to ~13px with the card frame style but
+# keep a constant pitch, so everything anchors on the HP label (the top-most
+# white label band): value windows sit right of the labels, capped at the
+# card edge so the neighbor card's frame stays out.
+CARD_HP_ANCHOR_REL = (2, 15, 88, 58)       # search window for the HP label
+CARD_VALUE_X_REL = (84, 140)               # value column, right-aligned
+CARD_AFF_OFFSET = 126                      # HP label center -> Affinity row center
+# The Stats cycle button in the dock top bar: amber when an overlay page is
+# active (mean ~(167,122,69)), blue when off (~(66,80,119))
+STATS_BUTTON = _btn((905, 10, 970, 44), 'STATS_BUTTON')
+STATS_STATE_AREA = (860, 8, 978, 45)
 
 RARITY_SCOPE = {
     'elite_and_above': ['elite', 'super_rare', 'ultra_rare'],
     'rare_and_above': ['rare', 'elite', 'super_rare', 'ultra_rare'],
     'all': 'all',
 }
+
+# Canonical EN ship names + rarities (from AzurLaneData ship_data_statistics).
+# OCR of the stylized name chip drifts between runs (the Live2D art behind it
+# moves), so raw reads are fuzzy-matched to canonical names to keep store
+# keys stable. Unmatched names (data lag, e.g. newest ships) stay raw.
+SHIP_NAMES_FILE = os.path.join(os.path.dirname(__file__), 'ship_names_en.json')
+
+
+def _load_ship_names():
+    try:
+        with open(SHIP_NAMES_FILE, encoding='utf-8') as f:
+            base = json.load(f)
+    except (OSError, ValueError):
+        logger.warning('ship_names_en.json missing or unreadable, '
+                       'ship names will not be canonicalized')
+        return {}
+    out = {}
+    for name, info in base.items():
+        out[name] = info
+        # Synthetic display-name variants the game shows but the data lacks
+        out.setdefault(name + ' META', {'rarity': info.get('rarity'), 'research': False})
+        out.setdefault(name + ' (Retrofit)', dict(info))
+    return out
+
+
+SHIP_NAMES = _load_ship_names()
+_NAME_SQUASH = {re.sub(r'[^a-z0-9]', '', n.lower()): n for n in SHIP_NAMES}
 SWEEP_SAFETY_LIMIT = 1500
+GRID_PAGE_LIMIT = 60
+# Ship-to-ship swipe box: the stock equipment SWIPE_AREA reaches y=527, where
+# the secretary dialogue bubble swallows drags (live: a sweep died at ship 2
+# when both random swipe points landed on it)
+CENSUS_SWIPE_AREA = Button(area=(225, 180, 570, 430), color=(),
+                           button=(225, 180, 570, 430), name='CENSUS_SWIPE_AREA')
+# Star totals are rarity base + 3; Elite and above only produce 5 or 6 slot
+# rows, so anything else is a misread (dark stars can vanish into dark art)
+STAR_TOTAL_VALID = (5, 6)
+STAR_SIM = 0.75
+TAB_SIM = 0.70
+# Calibrated on captures: padlock true>=0.99 / false<=0.49; "?" true>=0.79 /
+# false<=0.76 (the "?" check only runs after LEVEL OCR claimed unlocked cards)
+SKILL_LOCK_SIM = 0.75
+SKILL_UNKNOWN_SIM = 0.78
 
 
 class ShipCensus(Dock):
@@ -55,22 +180,17 @@ class ShipCensus(Dock):
         logger.info('Mode: {}, ships on record: {}'.format(mode, len(store.ships)))
 
         if mode != 'dashboard_only':
-            if READERS_READY:
-                self.census_sweep(store, full=(mode == 'full'))
-            else:
-                logger.warning('ShipCensus detail readers are not captured yet (Phase B '
-                               'pending) - skipping the scan, regenerating the dashboard '
-                               'from existing data only.')
+            self.census_sweep(store, full=(mode == 'full'))
 
         path = generate_dashboard(store)
         logger.info('Dashboard written to {}'.format(path))
-        logger.info('Open it in a browser to view the census.')
 
     # ---------------- sweep ----------------
 
     def census_sweep(self, store, full=False):
         """
-        Walk the filtered dock on the detail page and record every ship.
+        Grid pass (levels + affinity in dock order), then a detail swipe pass
+        joined by position. Resumable: the cursor is saved after every ship.
 
         Pages:
             in: Any
@@ -78,8 +198,7 @@ class ShipCensus(Dock):
         """
         scope = self.config.ShipCensus_RarityScope
         stale_days = int(self.config.ShipCensus_StaleDays)
-        mode = 'full' if full else 'delta'
-        skip = store.sweep_begin(mode, scope)
+        skip = store.sweep_begin('full' if full else 'delta', scope)
         store.save()
         if skip:
             logger.info('Resuming sweep, skipping past {} processed ships'.format(skip))
@@ -89,17 +208,30 @@ class ShipCensus(Dock):
         self.dock_favourite_set(enable=False, wait_loading=False)
         self.dock_sort_method_dsc_set(True, wait_loading=False)
         self.dock_filter_set(rarity=RARITY_SCOPE[scope])
+        self.device.screenshot()
 
-        if self.appear(DOCK_EMPTY, offset=(20, 20)) or not self.dock_enter_first():
+        if self.appear(DOCK_EMPTY, offset=(20, 20)):
             logger.info('Dock empty under census filter, nothing to scan')
             store.sweep_end(complete=True)
             store.save()
             self.dock_filter_set(wait_loading=False)
             return
 
-        # Fast-forward past ships already processed in an interrupted sweep
+        grid = self.grid_pass()
+        logger.info('Grid pass: {} cards'.format(len(grid)))
+
+        # NPC rentals occupy card 1 during events; dock_enter_first skips them
+        self.device.screenshot()
+        npc_offset = 1 if self.appear(DOCK_FIRST_NPC, offset=(20, 20)) else 0
+        if not self.dock_enter_first():
+            logger.info('No enterable ship in dock')
+            store.sweep_end(complete=True)
+            store.save()
+            self.dock_filter_set(wait_loading=False)
+            return
+
         for _ in range(skip):
-            if not self.ship_view_next(check_button=SHIP_DETAIL_CHECK):
+            if not self.ship_view_next_safe():
                 logger.info('Dock ended during resume skip, sweep was already complete')
                 store.sweep_end(complete=True)
                 store.save()
@@ -109,72 +241,214 @@ class ShipCensus(Dock):
 
         visited = 0
         complete = False
+        index = skip + npc_offset
         while 1:
             visited += 1
-            self.read_ship(store, stale_days=stale_days, full=full)
+            self.process_ship(store, grid, index, stale_days=stale_days, full=full)
             store.save()
             self.device.click_record_clear()
+            index += 1
             if visited >= SWEEP_SAFETY_LIMIT:
                 logger.warning('Census sweep safety limit reached')
                 break
-            if not self.ship_view_next(check_button=SHIP_DETAIL_CHECK):
+            # A failed swipe can mean end-of-dock OR a swallowed drag (Live2D
+            # skins eat them occasionally); the grid pass knows how many
+            # cards exist, so a premature "end" gets retried
+            advanced = False
+            for attempt in range(3):
+                if self.ship_view_next_safe():
+                    advanced = True
+                    break
+                if index >= len(grid):
+                    break
+                logger.info('Swipe did not advance (attempt {}), grid expects {} more '
+                            'cards'.format(attempt + 1, len(grid) - index))
+                self.device.sleep((1.5, 2.5))
+                self.device.click_record_clear()
+            if not advanced:
                 logger.info('Census sweep reached the end of the dock')
                 complete = True
                 break
 
+        if complete and grid and index != len(grid):
+            logger.warning('Grid pass saw {} cards but detail pass ended at index {} - '
+                           'affinity joins were level-checked per ship'.format(len(grid), index))
         store.sweep_end(complete=complete)
         store.save()
         self.detail_exit_to_dock()
         self.dock_filter_set(wait_loading=False)
         logger.info('Census sweep processed {} ships this run'.format(visited))
 
-    def read_ship(self, store, stale_days=7, full=False):
+    def process_ship(self, store, grid, index, stale_days=7, full=False):
         """
         Read the ship currently open on the detail page and upsert its record.
-        Quick read = name + level (no tab visits); deep read adds affinity,
-        skills, enhance, limit break.
 
         Pages:
-            in: SHIP_DETAIL_CHECK
-            out: SHIP_DETAIL_CHECK (on the ship's main detail tab)
+            in: SHIP_DETAIL_CHECK (Info view)
+            out: SHIP_DETAIL_CHECK (Info view)
         """
-        name = self.read_name()
-        level = self.read_level()
-        if name is None:
-            logger.warning('Ship name unreadable, recording skipped')
+        self.ensure_info_view()
+        detail = self.read_ship_detail()
+        name, level = detail['name'], detail['level']
+        if not name:
+            logger.warning('Ship name unreadable, ship skipped')
             store.sweep_advance(None)
             return
         key = store.sweep_key(name)
         logger.hr('Ship {} (Lv.{})'.format(key, level), level=2)
 
-        if not store.needs_deep_scan(key, level, stale_days, full=full):
-            logger.info('Record fresh, quick pass only')
-            store.record(key, name=name, copy=int(key.rsplit('#', 1)[1]), level=level)
-            store.sweep_advance(key)
-            return
+        # Join affinity from the grid pass; trust it only if the HP values
+        # agree (HP is near-unique per ship, so a misaligned join is rejected)
+        affinity = None
+        if 0 <= index < len(grid):
+            g_hp, g_aff = grid[index]
+            if g_hp and g_hp == detail['hp'] and g_aff is not None and 0 <= g_aff <= 200:
+                affinity = g_aff
+            else:
+                logger.info('Grid join rejected at index {} (grid HP {} vs detail HP {})'.format(
+                    index, g_hp, detail['hp']))
+
+        oathed = detail['oath_badge'] or (affinity is not None and affinity > 100)
 
         fields = dict(
             name=name,
             copy=int(key.rsplit('#', 1)[1]),
             level=level,
-            is_meta=self.detect_meta(),
-            rarity=self.read_rarity(),
+            hp=detail['hp'],
+            is_meta=detail['is_meta'],
+            is_research=detail['is_research'],
+            lb_current=detail['lb_current'],
+            lb_max=detail['lb_max'],
+            skills=detail['skills'],
+            oathed=oathed,
         )
-        fields.update(self.read_info_tab())      # affinity, oathed, skills, cognition
-        if not fields.get('is_meta'):
-            fields.update(self.read_enhance())   # enhance_maxed
-            fields.update(self.read_limit_break())  # lb_current, lb_max
+        if detail['rarity'] is not None:
+            fields['rarity'] = detail['rarity']
+        if affinity is not None:
+            fields['affinity'] = affinity
+
+        if not full and not store.needs_deep_scan(key, level, stale_days):
+            logger.info('Record fresh, enhance tab skipped')
+            store.record(key, **fields)
+            store.sweep_advance(key)
+            return
+
+        # Enhance state needs a tab visit; once maxed it stays maxed. Lab
+        # ships (META / PR research) have no Enhance tab at all - their
+        # upgrade systems live in the META Lab / Shipyard.
+        if detail['is_meta'] or detail['is_research']:
+            fields['enhance_maxed'] = None
+        else:
+            prior = store.ships.get(key)
+            if not full and prior and prior.get('enhance_maxed') is True:
+                fields['enhance_maxed'] = True
+            else:
+                fields['enhance_maxed'] = self.read_enhance_tab()
+
         store.record(key, deep=True, **fields)
         store.sweep_advance(key)
 
-    # ---------------- readers (Phase B: capture session required) ----------------
-    # Each reader must leave the ship on its main detail tab so ship_view_next
-    # keeps working. Areas/assets to cut are listed per reader.
+    # ---------------- detail page readers ----------------
 
-    def read_level(self):
-        """Level from the detail header - production-proven area from ExpFeed."""
+    def read_ship_detail(self):
+        """
+        Read everything the Info view offers from (mostly) one frame.
+
+        Returns:
+            dict: name, level, is_meta, lb_current, lb_max, skills, oath_badge
+        """
+        level = self.read_level()  # settles info bars, leaves a fresh frame
+        image = self.device.image
+
+        name, rarity, dict_research = self.canonical_name(self._clean_name(OCR_NAME.ocr(image)))
+        hp = OCR_DETAIL_HP.ocr(image)
+
+        # Lab-type ships (META / PR research) have a "Research" top tab and
+        # no Enhance/LimitBreak. Primary classification is by name (the PR
+        # roster is known; METAs carry the suffix) because bright ship art
+        # can sink even luma template matching on the translucent sidebar
+        # (live: Plymouth's wedding wings). The template is the fallback for
+        # ships the name data does not know yet.
+        is_meta = bool(name and name.endswith('META'))
+        is_research = dict_research
+        if not is_meta and not is_research:
+            sidebar_top = crop(image, SIDEBAR_TOP_AREA)
+            if TEMPLATE_TAB_RESEARCH.match(sidebar_top, similarity=TAB_SIM) \
+                    or TEMPLATE_TAB_RESEARCH.match_luma(sidebar_top, similarity=TAB_SIM):
+                is_research = True
+
+        star_img = crop(image, STAR_AREA)
+        gold = len(TEMPLATE_STAR_GOLD.match_multi(star_img, similarity=STAR_SIM, name='STAR_GOLD'))
+        dark = len(TEMPLATE_STAR_EMPTY.match_multi(star_img, similarity=STAR_SIM, name='STAR_EMPTY'))
+        total = gold + dark
+        if gold >= 1 and total in STAR_TOTAL_VALID:
+            lb_current, lb_max = gold, total
+        else:
+            logger.info('Star row implausible (gold={}, dark={}), limit break unknown'.format(gold, dark))
+            lb_current = lb_max = None
+
+        oath_badge = TEMPLATE_TIER_OATH.match(crop(image, TIER_AREA), similarity=TAB_SIM)
+
+        skills = self.read_skills(image)
+
+        logger.info('Detail: name={!r}, Lv.{}, HP {}, stars {}/{}, meta={}, research={}, '
+                    'oath_badge={}, skills={}'.format(
+                        name, level, hp, gold, total, is_meta, is_research, oath_badge,
+                        ['L' if s['locked'] else s['level'] for s in skills]))
+        return dict(name=name, rarity=rarity, level=level, hp=hp, is_meta=is_meta,
+                    is_research=is_research, lb_current=lb_current, lb_max=lb_max,
+                    skills=skills, oath_badge=oath_badge)
+
+    @staticmethod
+    def _clean_name(name):
+        """
+        cnocr output cleanup: leading chip-edge junk ('>'), the edit-pencil
+        icon OCR'd as a short trailing lowercase token ('f', 'ti', '+g'),
+        stray symbols. Keeps roman numerals and digit-bearing tail tokens
+        ("Laffey II", "U-2501", "Z23").
+        """
+        if not name:
+            return None
+        name = re.sub(r'[|/\\_\[\]{}<>~`^"\'+=*!?]+', ' ', str(name))
+        name = re.sub(r'\s+', ' ', name).strip(' .-:;,')
+        name = re.sub(r'\)[a-z]{1,2}$', ')', name)  # pencil junk fused to ')'
+        parts = name.split(' ')
+        while len(parts) > 1:
+            tail = parts[-1]
+            if len(tail) <= 2 and tail.islower() and tail.isalpha():
+                parts.pop()
+            else:
+                break
+        name = ' '.join(parts).strip(' .-:;,')
+        return name if len(name) >= 2 else None
+
+    @staticmethod
+    def canonical_name(cleaned):
+        """
+        Fuzzy-match a cleaned OCR name against the canonical EN list.
+
+        Returns:
+            (str, str, bool): (canonical or raw name, rarity or None,
+                research ship according to the name data)
+        """
+        if not cleaned:
+            return None, None, False
+        squash = re.sub(r'[^a-z0-9]', '', cleaned.lower())
+        if not squash:
+            return cleaned, None, False
+        hit = _NAME_SQUASH.get(squash)
+        if hit is None:
+            close = difflib.get_close_matches(squash, _NAME_SQUASH.keys(), n=1, cutoff=0.8)
+            if close:
+                hit = _NAME_SQUASH[close[0]]
+        if hit is None:
+            return cleaned, None, False
+        info = SHIP_NAMES.get(hit) or {}
+        return hit, info.get('rarity'), bool(info.get('research'))
+
+    def read_level(self, skip_first_screenshot=True):
+        """Level from the detail header, waiting out info bars (ExpFeed idiom)."""
         timeout = Timer(5, count=10).start()
-        skip_first_screenshot = True
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -189,66 +463,304 @@ class ShipCensus(Dock):
                 logger.warning('read_level timeout, OCR failed')
                 return None
 
-    def read_name(self):
+    def read_skills(self, image):
         """
-        TODO Phase B: OCR area of the ship name on the detail page header.
-        Needs captures across ship types (short/long names, retrofits, METAs)
-        to pin the crop and validate the cnocr model on stylized text.
+        Classify the three skill slots. A parseable "LEVEL: N" box wins
+        (locked cards read "LEVEL: ??" which never parses); then the padlock
+        card (calibration: true 0.99+ vs false <=0.49); then the gray "?"
+        hidden-slot card (true 0.79+ vs false <=0.76 - safe only because
+        unlocked cards were already claimed by the OCR). Nothing -> no skill.
         """
-        raise NotImplementedError('read_name needs a capture session')
+        skills = []
+        for i in range(3):
+            text = str(SKILL_LEVEL_OCRS[i].ocr(image)).replace(' ', '')
+            m = re.search(r'(\d+)$', text)
+            if m and 'LEV' in text.upper().replace('9', 'E'):
+                level = int(m.group(1))
+                if 1 <= level <= 10:
+                    skills.append({'level': level, 'max': 10, 'locked': False})
+                    continue
+            slot_img = crop(image, SKILL_SLOT_AREAS[i])
+            if TEMPLATE_SKILL_LOCKED.match(slot_img, similarity=SKILL_LOCK_SIM):
+                skills.append({'level': 0, 'max': 10, 'locked': True})
+                continue
+            if TEMPLATE_SKILL_UNKNOWN.match(slot_img, similarity=SKILL_UNKNOWN_SIM):
+                skills.append({'level': 0, 'max': 10, 'locked': True})
+                continue
+            # No readable card in this slot: ship has fewer than 3 skills
+        return skills
 
-    def detect_meta(self):
-        """
-        TODO Phase B: META ships show a Research sidebar tab instead of
-        LimitBreak on the detail page (see alas-debugging-notes).
-        """
-        raise NotImplementedError('detect_meta needs a capture session')
+    # ---------------- enhance tab ----------------
 
-    def read_rarity(self):
+    def read_enhance_tab(self):
         """
-        TODO Phase B: rarity from the detail page (frame color / star row),
-        or carried over from the dock card before entering.
-        """
-        raise NotImplementedError('read_rarity needs a capture session')
-
-    def read_info_tab(self):
-        """
-        TODO Phase B: open the Info tab and read affinity value, oath state,
-        skill cards ("Locked" / "LEVEL: N" - same text style MetaLab reads on
-        META info pages), cognition awakening. Return to the main detail tab.
-
-        Returns:
-            dict: affinity, oathed, skills, cognition_awakened
-        """
-        raise NotImplementedError('read_info_tab needs a capture session')
-
-    def read_enhance(self):
-        """
-        TODO Phase B: open the Enhance tab and read whether all enhance stats
-        are full. Return to the main detail tab.
+        Visit the Enhance tab and judge whether every enhanceable stat is full.
 
         Returns:
-            dict: enhance_maxed
-        """
-        raise NotImplementedError('read_enhance needs a capture session')
+            bool: True/False, or None if the tab could not be read.
 
-    def read_limit_break(self):
+        Pages:
+            in: SHIP_DETAIL_CHECK (Info view)
+            out: SHIP_DETAIL_CHECK (Info view)
         """
-        TODO Phase B: read limit break stage - either the star row on the
-        detail page or the LimitBreak tab state. Retrofit-capable ships shift
-        the sidebar tab positions (see alas-debugging-notes).
+        if not self.goto_sidebar_tab(TEMPLATE_TAB_ENHANCE, 'Enhance'):
+            # Blind clicks may have left a wrong tab open - restore Info so
+            # the next ship's read starts from the right view
+            self.goto_sidebar_tab(TEMPLATE_TAB_INFO, 'Info', verify_info=True)
+            return None
+
+        result = None
+        timeout = Timer(6, count=6).start()
+        while 1:
+            self.device.screenshot()
+            active = [self.enh_row_active(self.device.image, i) for i in range(4)]
+            if any(active):
+                maxed = []
+                for i in range(4):
+                    if not active[i]:
+                        continue
+                    row_img = crop(self.device.image, ENH_MAX_AREAS[i])
+                    maxed.append(bool(TEMPLATE_ENH_MAX.match(row_img, similarity=TAB_SIM)))
+                result = all(maxed)
+                logger.info('Enhance rows active={} maxed_rows={} -> maxed={}'.format(
+                    active, maxed, result))
+                break
+            if timeout.reached():
+                logger.warning('Enhance panel not readable, enhance unknown')
+                break
+
+        self.goto_sidebar_tab(TEMPLATE_TAB_INFO, 'Info', verify_info=True)
+        return result
+
+    @staticmethod
+    def enh_row_active(image, i):
+        """
+        A row the hull can enhance shows bright "EXP:..." text; capped-at-zero
+        rows render it dimmed.
+        """
+        luma = rgb2luma(crop(image, ENH_EXP_AREAS[i]))
+        return int(np.sum(luma > ENH_ROW_ACTIVE_LUMA)) >= ENH_ROW_ACTIVE_COUNT
+
+    def is_in_enhance(self):
+        """The Fill button (opaque chrome) is unique to the Enhance panel."""
+        return TEMPLATE_ENH_FILL.match(crop(self.device.image, ENH_FILL_SEARCH),
+                                       similarity=TAB_SIM)
+
+    def is_in_info(self):
+        """
+        On the Info view the "Level:" readout parses AND the Enhance panel is
+        absent - a bare level-parse can false-positive on enhance-bar pixels
+        (live: one ship got read entirely on the wrong tab that way).
+        """
+        return not self.is_in_enhance() \
+            and 1 <= OCR_DETAIL_LEVEL.ocr(self.device.image) <= 125
+
+    def ensure_info_view(self):
+        """Heal a sticky non-Info tab left over from the previous ship."""
+        self.device.screenshot()
+        if not self.is_in_info():
+            logger.info('Not on the Info view, returning to it')
+            self.goto_sidebar_tab(TEMPLATE_TAB_INFO, 'Info', verify_info=True)
+
+    def goto_sidebar_tab(self, template, tab_name, verify_info=False):
+        """
+        Reach a sidebar tab. The tabs sit on a semi-transparent panel that
+        ship art tints, so luma matching backs up the plain match. No blind
+        clicking: an unexpected sidebar means an unexpected ship type (live:
+        blind clicks on a research ship navigated into the Shipyard and off
+        the detail page entirely). Arrival is judged only by opaque elements
+        of the destination view.
+        """
+        timeout = Timer(9, count=8).start()
+        clicked = Timer(1.5)
+        while 1:
+            self.device.screenshot()
+            if verify_info:
+                if self.is_in_info():
+                    return True
+            elif self.is_in_enhance():
+                return True
+            if timeout.reached():
+                logger.warning('goto_sidebar_tab({}) timeout'.format(tab_name))
+                return False
+            if clicked.reached():
+                sim, btn = template.match_result(crop(self.device.image, SIDEBAR_AREA))
+                if sim < TAB_SIM:
+                    sim, btn = template.match_luma_result(crop(self.device.image, SIDEBAR_AREA))
+                if sim >= TAB_SIM:
+                    btn = btn.move((SIDEBAR_AREA[0], SIDEBAR_AREA[1]))
+                    self.device.click(btn)
+                    clicked.reset()
+
+    # ---------------- grid pass ----------------
+
+    def grid_pass(self):
+        """
+        With the dock's Stats overlay on its Affinity page, walk the pages and
+        read (level, affinity) per card in dock order. next_page drags 80% of
+        a viewport, so consecutive screens overlap; overlapping row
+        fingerprints are dropped before appending.
 
         Returns:
-            dict: lb_current, lb_max
+            list[(int, int)]: (level, affinity) per card, dock order.
+
+        Pages:
+            in: page_dock (filters applied, at top)
+            out: page_dock (at top, overlay off)
         """
-        raise NotImplementedError('read_limit_break needs a capture session')
+        logger.hr('Grid pass', level=2)
+        if not self.overlay_set(True):
+            logger.warning('Could not reach the Affinity overlay page, '
+                           'affinity will be missing this sweep')
+            return []
+
+        entries = []
+        prev_rows = []
+        for page in range(GRID_PAGE_LIMIT):
+            self.device.screenshot()
+            rows = []
+            ended = False
+            for r in range(2):
+                row = []
+                for c in range(7):
+                    i = r * 7 + c
+                    pair = self.read_card_hp_affinity(self.device.image, i)
+                    if pair is None:
+                        ended = True
+                        break
+                    row.append(pair)
+                if row:
+                    rows.append(row)
+                if ended:
+                    break
+
+            # Drop the overlap with the previous screen (0, 1 or 2 rows)
+            start = 0
+            for k in range(min(len(prev_rows), len(rows)), 0, -1):
+                if prev_rows[-k:] == rows[:k]:
+                    start = k
+                    break
+            for row in rows[start:]:
+                entries.extend(row)
+            prev_rows = rows
+
+            if ended:
+                break
+            if not DOCK_SCROLL.appear(main=self) or DOCK_SCROLL.at_bottom(main=self):
+                break
+            DOCK_SCROLL.next_page(main=self)
+            self.device.sleep((1.0, 1.4))
+
+        self.overlay_set(False)
+        if DOCK_SCROLL.appear(main=self):
+            DOCK_SCROLL.set_top(main=self)
+        self.device.sleep((0.6, 1.0))
+        return entries
+
+    @staticmethod
+    def card_hp_anchor_y(image, index):
+        """
+        y-center of the HP label - the top-most white label band in the
+        card's upper stat area. All other overlay rows sit at fixed offsets
+        below it.
+        """
+        ox, oy = CARD_GRIDS.buttons[index].area[:2]
+        lx1, ly1, lx2, ly2 = CARD_HP_ANCHOR_REL
+        label_img = crop(image, (ox + lx1, oy + ly1, ox + lx2, oy + ly2))
+        mask = rgb2luma(label_img) > 200
+        row_counts = mask.sum(axis=1)
+        bands = np.where(row_counts >= 8)[0]
+        if not len(bands):
+            return None
+        top = bands[0]
+        bottom = top
+        while bottom + 1 in bands:
+            bottom += 1
+        return oy + ly1 + (top + bottom) // 2
+
+    def _read_card_value(self, image, index, yc, name):
+        ox = CARD_GRIDS.buttons[index].area[0]
+        vx1, vx2 = CARD_VALUE_X_REL
+        ocr = BrightDigit(_btn((ox + vx1, yc - 13, ox + vx2, yc + 13), name),
+                          letter=(255, 255, 255), threshold=128, name='OCR_' + name)
+        ocr.SHOW_LOG = False
+        return ocr.ocr(image)
+
+    def read_card_hp_affinity(self, image, index):
+        """
+        (hp, affinity) from the overlay stat rows, both anchored on the HP
+        label. Affinity clamps to 0-200; None marks an unreadable field.
+        Returns None (no tuple) when the cell holds no card - the overlay
+        labels only render on cards, which doubles as the presence check
+        (the Lv. badge is too dim on plain card frames to count pixels on).
+        """
+        yc = self.card_hp_anchor_y(image, index)
+        if yc is None:
+            return None
+        hp = self._read_card_value(image, index, yc, 'CARD_HP')
+        affinity = self._read_card_value(image, index, yc + CARD_AFF_OFFSET, 'CARD_AFF')
+        if not 0 < hp <= 99999:
+            hp = None
+        if not 0 <= affinity <= 200:
+            affinity = None
+        return hp, affinity
+
+    def overlay_page_is_affinity(self, image):
+        """OCR card 1's bottom label: 'Affinity' names the overlay page we need."""
+        yc = self.card_hp_anchor_y(image, 0)
+        if yc is None:
+            return False
+        ox = CARD_GRIDS.buttons[0].area[0]
+        yc += CARD_AFF_OFFSET
+        ocr = Ocr(_btn((ox + 2, yc - 14, ox + 88, yc + 14), 'OVERLAY_LABEL'), lang='cnocr',
+                  letter=(255, 255, 255), threshold=128, name='OCR_OVERLAY_LABEL')
+        ocr.SHOW_LOG = False
+        text = str(ocr.ocr(image))
+        return 'affin' in text.lower()
+
+    def overlay_is_on(self):
+        """The Stats button is amber when an overlay page is active, blue when off."""
+        mean = np.array(crop(self.device.image, STATS_STATE_AREA)).reshape(-1, 3).mean(axis=0)
+        return mean[0] > 120 and mean[0] > mean[2]
+
+    def overlay_set(self, enable):
+        """
+        Cycle the dock's Stats button (OFF -> stats+Affinity -> armor ->
+        skills -> OFF) until the Affinity page (enable=True) or OFF
+        (enable=False) is reached.
+        """
+        for attempt in range(8):
+            self.device.screenshot()
+            on = self.overlay_is_on()
+            if not enable:
+                if not on:
+                    return True
+            elif on and self.overlay_page_is_affinity(self.device.image):
+                return True
+            self.device.click(STATS_BUTTON)
+            self.device.sleep((1.0, 1.4))
+            self.device.click_record_clear()
+        logger.warning('overlay_set({}) gave up after 8 taps'.format(enable))
+        return False
 
     # ---------------- navigation ----------------
 
+    def ship_view_next_safe(self):
+        """
+        ship_view_next with the dialogue-safe swipe box swapped in for the
+        duration of the call (Equipment._ship_view_swipe reads the module
+        global at call time; tasks run single-threaded so this is safe).
+        """
+        from module.equipment import equipment as equipment_mod
+        saved = equipment_mod.SWIPE_AREA
+        equipment_mod.SWIPE_AREA = CENSUS_SWIPE_AREA
+        try:
+            return self.ship_view_next(check_button=SHIP_DETAIL_CHECK)
+        finally:
+            equipment_mod.SWIPE_AREA = saved
+
     def detail_exit_to_dock(self, skip_first_screenshot=True):
-        """
-        Back out from ship detail to page_dock (MetaLab's lb_exit_to_dock).
-        """
+        """Back out from ship detail to page_dock (MetaLab's exit idiom)."""
         timeout = Timer(10, count=10).start()
         while 1:
             if skip_first_screenshot:

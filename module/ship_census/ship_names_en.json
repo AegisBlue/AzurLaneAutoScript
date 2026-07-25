@@ -1,0 +1,3706 @@
+{
+"?????": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Abercrombie": {
+"rarity": "elite",
+"research": false
+},
+"Abukuma": {
+"rarity": "normal",
+"research": false
+},
+"Acasta": {
+"rarity": "rare",
+"research": false
+},
+"Achilles": {
+"rarity": "rare",
+"research": false
+},
+"Admiral Graf Spee": {
+"rarity": "elite",
+"research": false
+},
+"Admiral Hipper": {
+"rarity": "elite",
+"research": false
+},
+"Admiral Hipper META": {
+"rarity": "super_rare",
+"research": false
+},
+"Admiral Hipper μ": {
+"rarity": "elite",
+"research": false
+},
+"Admiral Nakhimov": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Admiral Zenker": {
+"rarity": "super_rare",
+"research": false
+},
+"Adventure": {
+"rarity": "elite",
+"research": false
+},
+"Adventure Galley": {
+"rarity": "super_rare",
+"research": false
+},
+"Agano": {
+"rarity": "elite",
+"research": false
+},
+"Ajax": {
+"rarity": "rare",
+"research": false
+},
+"Akagi": {
+"rarity": "super_rare",
+"research": false
+},
+"Akagi μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Akagi-chan": {
+"rarity": "elite",
+"research": false
+},
+"Akane Shinjo": {
+"rarity": "super_rare",
+"research": false
+},
+"Akashi": {
+"rarity": "super_rare",
+"research": false
+},
+"Akatsuki": {
+"rarity": "rare",
+"research": false
+},
+"Alabama": {
+"rarity": "super_rare",
+"research": false
+},
+"Albacore": {
+"rarity": "super_rare",
+"research": false
+},
+"Albacore μ": {
+"rarity": "elite",
+"research": false
+},
+"Alberto di Giussano": {
+"rarity": "elite",
+"research": false
+},
+"Albion": {
+"rarity": "super_rare",
+"research": false
+},
+"Alfredo Oriani": {
+"rarity": "elite",
+"research": false
+},
+"Algérie": {
+"rarity": "super_rare",
+"research": false
+},
+"Algérie META": {
+"rarity": "super_rare",
+"research": false
+},
+"Allen M. Sumner": {
+"rarity": "super_rare",
+"research": false
+},
+"Alsace": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Alvitr": {
+"rarity": "super_rare",
+"research": false
+},
+"Amagi": {
+"rarity": "super_rare",
+"research": false
+},
+"Amagi(CV)": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Amagi-chan": {
+"rarity": "elite",
+"research": false
+},
+"Amazon": {
+"rarity": "rare",
+"research": false
+},
+"Amazon Retrofit": {
+"rarity": "rare",
+"research": false
+},
+"Ami Futami": {
+"rarity": "elite",
+"research": false
+},
+"Amity": {
+"rarity": "super_rare",
+"research": false
+},
+"An Shan": {
+"rarity": "elite",
+"research": false
+},
+"An Shan (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Anchorage": {
+"rarity": "super_rare",
+"research": true
+},
+"Andrea Doria": {
+"rarity": "elite",
+"research": false
+},
+"Andrea Doria META": {
+"rarity": "super_rare",
+"research": false
+},
+"Anniversary Kizuna AI": {
+"rarity": "super_rare",
+"research": false
+},
+"Aoba": {
+"rarity": "normal",
+"research": false
+},
+"Aquila": {
+"rarity": "super_rare",
+"research": false
+},
+"Arashio": {
+"rarity": "rare",
+"research": false
+},
+"Archerfish": {
+"rarity": "super_rare",
+"research": false
+},
+"Ardent": {
+"rarity": "rare",
+"research": false
+},
+"Arethusa": {
+"rarity": "rare",
+"research": false
+},
+"Argus": {
+"rarity": "elite",
+"research": false
+},
+"Ariake": {
+"rarity": "rare",
+"research": false
+},
+"Arizona": {
+"rarity": "elite",
+"research": false
+},
+"Arizona META": {
+"rarity": "super_rare",
+"research": false
+},
+"Ark Royal": {
+"rarity": "elite",
+"research": false
+},
+"Ark Royal META": {
+"rarity": "super_rare",
+"research": false
+},
+"Arkhangelsk": {
+"rarity": "elite",
+"research": false
+},
+"Asama": {
+"rarity": "super_rare",
+"research": false
+},
+"Asanagi": {
+"rarity": "elite",
+"research": false
+},
+"Asashio": {
+"rarity": "rare",
+"research": false
+},
+"Ashigara": {
+"rarity": "elite",
+"research": false
+},
+"Astoria": {
+"rarity": "elite",
+"research": false
+},
+"Asuka": {
+"rarity": "super_rare",
+"research": false
+},
+"Atago": {
+"rarity": "super_rare",
+"research": false
+},
+"Atlanta": {
+"rarity": "rare",
+"research": false
+},
+"Attilio Regolo": {
+"rarity": "super_rare",
+"research": false
+},
+"August von Parseval": {
+"rarity": "super_rare",
+"research": true
+},
+"Aulick": {
+"rarity": "normal",
+"research": false
+},
+"Aurora": {
+"rarity": "elite",
+"research": false
+},
+"Avrora": {
+"rarity": "super_rare",
+"research": false
+},
+"Ayanami": {
+"rarity": "elite",
+"research": false
+},
+"Ayase": {
+"rarity": "elite",
+"research": false
+},
+"Aylwin": {
+"rarity": "rare",
+"research": false
+},
+"Azuma": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Azusa Miura": {
+"rarity": "super_rare",
+"research": false
+},
+"BLACK★ROCK SHOOTER": {
+"rarity": "super_rare",
+"research": false
+},
+"Bache": {
+"rarity": "rare",
+"research": false
+},
+"Bailey": {
+"rarity": "rare",
+"research": false
+},
+"Baltimore": {
+"rarity": "super_rare",
+"research": false
+},
+"Baltimore μ": {
+"rarity": "elite",
+"research": false
+},
+"Bartolomeo Colleoni": {
+"rarity": "elite",
+"research": false
+},
+"Bataan": {
+"rarity": "elite",
+"research": false
+},
+"Bayard": {
+"rarity": "super_rare",
+"research": true
+},
+"Beach Rhapsody": {
+"rarity": "super_rare",
+"research": false
+},
+"Beagle": {
+"rarity": "normal",
+"research": false
+},
+"Belfas": {
+"rarity": "elite",
+"research": false
+},
+"Belfast": {
+"rarity": "super_rare",
+"research": false
+},
+"Bell": {
+"rarity": "elite",
+"research": false
+},
+"Bellona": {
+"rarity": "elite",
+"research": false
+},
+"Benson": {
+"rarity": "rare",
+"research": false
+},
+"Biloxi": {
+"rarity": "elite",
+"research": false
+},
+"Birmingham": {
+"rarity": "elite",
+"research": false
+},
+"Bismarck": {
+"rarity": "super_rare",
+"research": false
+},
+"Bismarck Zwei": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Black Heart": {
+"rarity": "super_rare",
+"research": false
+},
+"Black Prince": {
+"rarity": "elite",
+"research": false
+},
+"Blanc": {
+"rarity": "elite",
+"research": false
+},
+"Bluegill": {
+"rarity": "elite",
+"research": false
+},
+"Blücher": {
+"rarity": "super_rare",
+"research": false
+},
+"Bogatyr": {
+"rarity": "elite",
+"research": false
+},
+"Bogue": {
+"rarity": "normal",
+"research": false
+},
+"Bois Belleau": {
+"rarity": "super_rare",
+"research": false
+},
+"Boise": {
+"rarity": "elite",
+"research": false
+},
+"Boise META": {
+"rarity": "elite",
+"research": false
+},
+"Boise μ": {
+"rarity": "elite",
+"research": false
+},
+"Bolzano": {
+"rarity": "elite",
+"research": false
+},
+"Bolzano META": {
+"rarity": "elite",
+"research": false
+},
+"Bremerton": {
+"rarity": "super_rare",
+"research": false
+},
+"Brennus": {
+"rarity": "super_rare",
+"research": false
+},
+"Brest": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Bristol": {
+"rarity": "super_rare",
+"research": false
+},
+"Brooklyn": {
+"rarity": "rare",
+"research": false
+},
+"Brünhilde": {
+"rarity": "super_rare",
+"research": false
+},
+"Bulldog": {
+"rarity": "normal",
+"research": false
+},
+"Bunker Hill": {
+"rarity": "super_rare",
+"research": false
+},
+"Bush": {
+"rarity": "rare",
+"research": false
+},
+"Béarn": {
+"rarity": "elite",
+"research": false
+},
+"Béarn META": {
+"rarity": "super_rare",
+"research": false
+},
+"California": {
+"rarity": "rare",
+"research": false
+},
+"Carabiniere": {
+"rarity": "elite",
+"research": false
+},
+"Carabiniere META": {
+"rarity": "elite",
+"research": false
+},
+"Casablanca": {
+"rarity": "rare",
+"research": false
+},
+"Cassin": {
+"rarity": "normal",
+"research": false
+},
+"Cavalla": {
+"rarity": "super_rare",
+"research": false
+},
+"Centaur": {
+"rarity": "super_rare",
+"research": false
+},
+"Champagne": {
+"rarity": "super_rare",
+"research": true
+},
+"Chang Chun": {
+"rarity": "elite",
+"research": false
+},
+"Chang Chun (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Chang Feng": {
+"rarity": "elite",
+"research": false
+},
+"Chang Wu": {
+"rarity": "super_rare",
+"research": false
+},
+"Chao Ho": {
+"rarity": "elite",
+"research": false
+},
+"Chao Ho (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Chapayev": {
+"rarity": "super_rare",
+"research": false
+},
+"Charles Ausburne": {
+"rarity": "elite",
+"research": false
+},
+"Charybdis": {
+"rarity": "super_rare",
+"research": false
+},
+"Chaser": {
+"rarity": "elite",
+"research": false
+},
+"Chen Hai": {
+"rarity": "elite",
+"research": false
+},
+"Chen Hai (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Cheshire": {
+"rarity": "super_rare",
+"research": true
+},
+"Chi An": {
+"rarity": "elite",
+"research": false
+},
+"Chicago": {
+"rarity": "rare",
+"research": false
+},
+"Chien Wu": {
+"rarity": "super_rare",
+"research": false
+},
+"Chihaya Kisaragi": {
+"rarity": "super_rare",
+"research": false
+},
+"Chikuma": {
+"rarity": "super_rare",
+"research": false
+},
+"Chise Asukagawa": {
+"rarity": "super_rare",
+"research": false
+},
+"Chitose": {
+"rarity": "elite",
+"research": false
+},
+"Chiyoda": {
+"rarity": "elite",
+"research": false
+},
+"Chkalov": {
+"rarity": "super_rare",
+"research": true
+},
+"Choukai": {
+"rarity": "super_rare",
+"research": false
+},
+"Clarence K. Bronson": {
+"rarity": "elite",
+"research": false
+},
+"Clemenceau": {
+"rarity": "super_rare",
+"research": false
+},
+"Cleopatra": {
+"rarity": "super_rare",
+"research": false
+},
+"Clevelad": {
+"rarity": "elite",
+"research": false
+},
+"Cleveland": {
+"rarity": "elite",
+"research": false
+},
+"Cleveland META": {
+"rarity": "super_rare",
+"research": false
+},
+"Cleveland μ": {
+"rarity": "elite",
+"research": false
+},
+"Colorado": {
+"rarity": "elite",
+"research": false
+},
+"Colorado (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Columbia": {
+"rarity": "elite",
+"research": false
+},
+"Comet": {
+"rarity": "normal",
+"research": false
+},
+"Compiler": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Concord": {
+"rarity": "rare",
+"research": false
+},
+"Constellation": {
+"rarity": "super_rare",
+"research": false
+},
+"Conte di Cavour": {
+"rarity": "rare",
+"research": false
+},
+"Cooper": {
+"rarity": "elite",
+"research": false
+},
+"Cowpens": {
+"rarity": "super_rare",
+"research": false
+},
+"Craven": {
+"rarity": "normal",
+"research": false
+},
+"Crescent": {
+"rarity": "normal",
+"research": false
+},
+"Curacoa": {
+"rarity": "rare",
+"research": false
+},
+"Curlew": {
+"rarity": "rare",
+"research": false
+},
+"Cygnet": {
+"rarity": "normal",
+"research": false
+},
+"DEAD MASTER": {
+"rarity": "super_rare",
+"research": false
+},
+"Dace": {
+"rarity": "elite",
+"research": false
+},
+"Daisen": {
+"rarity": "super_rare",
+"research": true
+},
+"De Zeven Provinciën": {
+"rarity": "super_rare",
+"research": false
+},
+"Denver": {
+"rarity": "elite",
+"research": false
+},
+"Deutschland": {
+"rarity": "elite",
+"research": false
+},
+"Devonshire": {
+"rarity": "elite",
+"research": false
+},
+"Dewey": {
+"rarity": "rare",
+"research": false
+},
+"Dewey META": {
+"rarity": "elite",
+"research": false
+},
+"Dido": {
+"rarity": "super_rare",
+"research": false
+},
+"Dido μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Dmitri Donskoi": {
+"rarity": "super_rare",
+"research": true
+},
+"Dolphin": {
+"rarity": "elite",
+"research": false
+},
+"Dorsetshire": {
+"rarity": "elite",
+"research": false
+},
+"Downes": {
+"rarity": "normal",
+"research": false
+},
+"Drake": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Duca degli Abruzzi": {
+"rarity": "super_rare",
+"research": false
+},
+"Duguay-Trouin": {
+"rarity": "elite",
+"research": false
+},
+"Duisburg": {
+"rarity": "super_rare",
+"research": false
+},
+"Duke of York": {
+"rarity": "super_rare",
+"research": false
+},
+"Dunkerque": {
+"rarity": "elite",
+"research": false
+},
+"Dunkerque META": {
+"rarity": "elite",
+"research": false
+},
+"Dupleix": {
+"rarity": "elite",
+"research": false
+},
+"Duquesne": {
+"rarity": "elite",
+"research": false
+},
+"Eagle": {
+"rarity": "elite",
+"research": false
+},
+"Echo": {
+"rarity": "rare",
+"research": false
+},
+"Edinburgh": {
+"rarity": "elite",
+"research": false
+},
+"Elbe": {
+"rarity": "elite",
+"research": false
+},
+"Elbing": {
+"rarity": "elite",
+"research": false
+},
+"Eldridge": {
+"rarity": "super_rare",
+"research": false
+},
+"Eldridge (Retrofit)": {
+"rarity": "super_rare",
+"research": false
+},
+"Elegant Kizuna AI": {
+"rarity": "super_rare",
+"research": false
+},
+"Elise": {
+"rarity": "super_rare",
+"research": false
+},
+"Emanuele Pessagno": {
+"rarity": "elite",
+"research": false
+},
+"Emden": {
+"rarity": "super_rare",
+"research": false
+},
+"Enterprise": {
+"rarity": "super_rare",
+"research": false
+},
+"Erebus": {
+"rarity": "elite",
+"research": false
+},
+"Erebus META": {
+"rarity": "elite",
+"research": false
+},
+"Eskimo": {
+"rarity": "elite",
+"research": false
+},
+"Essex": {
+"rarity": "super_rare",
+"research": false
+},
+"Essex (Retrofit)": {
+"rarity": "super_rare",
+"research": false
+},
+"Evertsen": {
+"rarity": "elite",
+"research": false
+},
+"Exeter": {
+"rarity": "elite",
+"research": false
+},
+"Fancy": {
+"rarity": "super_rare",
+"research": false
+},
+"Fargo": {
+"rarity": "super_rare",
+"research": false
+},
+"Fei Yuen": {
+"rarity": "elite",
+"research": false
+},
+"Felix Schultz": {
+"rarity": "super_rare",
+"research": true
+},
+"Fiji": {
+"rarity": "rare",
+"research": false
+},
+"Flandre": {
+"rarity": "super_rare",
+"research": true
+},
+"Flasher": {
+"rarity": "super_rare",
+"research": false
+},
+"Fletcher": {
+"rarity": "rare",
+"research": false
+},
+"Fleuret": {
+"rarity": "elite",
+"research": false
+},
+"Foch": {
+"rarity": "elite",
+"research": false
+},
+"Foch META": {
+"rarity": "elite",
+"research": false
+},
+"Foote": {
+"rarity": "normal",
+"research": false
+},
+"Forbin": {
+"rarity": "rare",
+"research": false
+},
+"Formidable": {
+"rarity": "super_rare",
+"research": false
+},
+"Formidable μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Fortune": {
+"rarity": "rare",
+"research": false
+},
+"Fortune META": {
+"rarity": "elite",
+"research": false
+},
+"Foxhound": {
+"rarity": "normal",
+"research": false
+},
+"Francesco Caracciolo": {
+"rarity": "super_rare",
+"research": false
+},
+"Franklin": {
+"rarity": "super_rare",
+"research": false
+},
+"Friedrich Carl": {
+"rarity": "super_rare",
+"research": false
+},
+"Friedrich der Grosse": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Friedrich der Große": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Fritz Rumey": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Fu Po": {
+"rarity": "elite",
+"research": false
+},
+"Fu Shun": {
+"rarity": "elite",
+"research": false
+},
+"Fu Shun (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Fu Shun - Hero": {
+"rarity": "super_rare",
+"research": false
+},
+"Fubuki": {
+"rarity": "elite",
+"research": false
+},
+"Fujinami": {
+"rarity": "super_rare",
+"research": false
+},
+"Fumizuki": {
+"rarity": "rare",
+"research": false
+},
+"Furutaka": {
+"rarity": "normal",
+"research": false
+},
+"Fusou": {
+"rarity": "rare",
+"research": false
+},
+"Fusou META": {
+"rarity": "elite",
+"research": false
+},
+"Fusou Retrofit": {
+"rarity": "rare",
+"research": false
+},
+"Galatea": {
+"rarity": "rare",
+"research": false
+},
+"Gallant": {
+"rarity": "elite",
+"research": false
+},
+"Gangut": {
+"rarity": "elite",
+"research": false
+},
+"Gangut META": {
+"rarity": "super_rare",
+"research": false
+},
+"Ganj-i-Sawai": {
+"rarity": "super_rare",
+"research": false
+},
+"Gascogne": {
+"rarity": "super_rare",
+"research": true
+},
+"Gascogne μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Georgia": {
+"rarity": "super_rare",
+"research": true
+},
+"Gilded Age Mech MKI": {
+"rarity": "super_rare",
+"research": false
+},
+"Gilded Age Mech MKII": {
+"rarity": "super_rare",
+"research": false
+},
+"Gilded Age Mech MKIII": {
+"rarity": "super_rare",
+"research": false
+},
+"Giosuè Carducci": {
+"rarity": "elite",
+"research": false
+},
+"Giulio Cesare": {
+"rarity": "elite",
+"research": false
+},
+"Giulio Cesare META": {
+"rarity": "elite",
+"research": false
+},
+"Giuseppe Garibaldi": {
+"rarity": "super_rare",
+"research": false
+},
+"Glasgow": {
+"rarity": "rare",
+"research": false
+},
+"Glorious": {
+"rarity": "elite",
+"research": false
+},
+"Glorious META": {
+"rarity": "super_rare",
+"research": false
+},
+"Gloucester": {
+"rarity": "elite",
+"research": false
+},
+"Glowworm": {
+"rarity": "elite",
+"research": false
+},
+"Glowworm (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Gneisenau": {
+"rarity": "elite",
+"research": false
+},
+"Gneisenau META": {
+"rarity": "super_rare",
+"research": false
+},
+"Golden Darkness": {
+"rarity": "super_rare",
+"research": false
+},
+"Golden Hind": {
+"rarity": "super_rare",
+"research": false
+},
+"Gorizia": {
+"rarity": "super_rare",
+"research": false
+},
+"Gouden Leeuw": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Graf Zeppelin": {
+"rarity": "super_rare",
+"research": false
+},
+"Green Heart": {
+"rarity": "super_rare",
+"research": false
+},
+"Gremyashchy": {
+"rarity": "elite",
+"research": false
+},
+"Grenville": {
+"rarity": "elite",
+"research": false
+},
+"Grenville META": {
+"rarity": "elite",
+"research": false
+},
+"Gridley": {
+"rarity": "rare",
+"research": false
+},
+"Gromky": {
+"rarity": "elite",
+"research": false
+},
+"Grozny": {
+"rarity": "elite",
+"research": false
+},
+"Guam": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Guichen": {
+"rarity": "super_rare",
+"research": false
+},
+"Haguro": {
+"rarity": "elite",
+"research": false
+},
+"Hai Chi": {
+"rarity": "elite",
+"research": false
+},
+"Hai Chou": {
+"rarity": "elite",
+"research": false
+},
+"Hai Tien": {
+"rarity": "elite",
+"research": false
+},
+"Hai Yung": {
+"rarity": "elite",
+"research": false
+},
+"Hakuhou": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Hakuryuu": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Halford": {
+"rarity": "super_rare",
+"research": true
+},
+"Halsey Powell": {
+"rarity": "rare",
+"research": false
+},
+"Hamakaze": {
+"rarity": "rare",
+"research": false
+},
+"Hammann": {
+"rarity": "rare",
+"research": false
+},
+"Hammann II": {
+"rarity": "elite",
+"research": false
+},
+"Hanazuki": {
+"rarity": "elite",
+"research": false
+},
+"Harbin": {
+"rarity": "super_rare",
+"research": true
+},
+"Hardy": {
+"rarity": "elite",
+"research": false
+},
+"Haruka Amami": {
+"rarity": "super_rare",
+"research": false
+},
+"Haruna": {
+"rarity": "elite",
+"research": false
+},
+"Haruna Sairenji": {
+"rarity": "elite",
+"research": false
+},
+"Harutsuki": {
+"rarity": "elite",
+"research": false
+},
+"Hass": {
+"rarity": "elite",
+"research": false
+},
+"Hatakaze": {
+"rarity": "rare",
+"research": false
+},
+"Hatakaze META": {
+"rarity": "elite",
+"research": false
+},
+"Hatsuharu": {
+"rarity": "rare",
+"research": false
+},
+"Hatsushimo": {
+"rarity": "rare",
+"research": false
+},
+"Hatsuzuki": {
+"rarity": "super_rare",
+"research": false
+},
+"Hazelwood": {
+"rarity": "rare",
+"research": false
+},
+"Helena": {
+"rarity": "elite",
+"research": false
+},
+"Helena META": {
+"rarity": "super_rare",
+"research": false
+},
+"Helena Retrofit": {
+"rarity": "elite",
+"research": false
+},
+"Hermes": {
+"rarity": "normal",
+"research": false
+},
+"Hermione": {
+"rarity": "super_rare",
+"research": false
+},
+"Hero": {
+"rarity": "elite",
+"research": false
+},
+"Herring": {
+"rarity": "elite",
+"research": false
+},
+"Hestia": {
+"rarity": "super_rare",
+"research": false
+},
+"Hibiki": {
+"rarity": "elite",
+"research": false
+},
+"Hiei": {
+"rarity": "elite",
+"research": false
+},
+"Hiei META": {
+"rarity": "super_rare",
+"research": false
+},
+"Hiei-chan": {
+"rarity": "elite",
+"research": false
+},
+"Hindenburg": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Hiryu.META": {
+"rarity": "super_rare",
+"research": false
+},
+"Hiryuu": {
+"rarity": "elite",
+"research": false
+},
+"Hiryuu META": {
+"rarity": "super_rare",
+"research": false
+},
+"Hiyou": {
+"rarity": "rare",
+"research": false
+},
+"Hiyou META": {
+"rarity": "elite",
+"research": false
+},
+"Hobby": {
+"rarity": "rare",
+"research": false
+},
+"Homura": {
+"rarity": "super_rare",
+"research": false
+},
+"Honoka": {
+"rarity": "super_rare",
+"research": false
+},
+"Honolulu": {
+"rarity": "rare",
+"research": false
+},
+"Hood": {
+"rarity": "super_rare",
+"research": false
+},
+"Hornet": {
+"rarity": "elite",
+"research": false
+},
+"Hornet II": {
+"rarity": "super_rare",
+"research": false
+},
+"Hornet META": {
+"rarity": "super_rare",
+"research": false
+},
+"Houshou": {
+"rarity": "elite",
+"research": false
+},
+"Houshou META": {
+"rarity": "elite",
+"research": false
+},
+"Houston": {
+"rarity": "elite",
+"research": false
+},
+"Houston II": {
+"rarity": "super_rare",
+"research": false
+},
+"Howe": {
+"rarity": "super_rare",
+"research": false
+},
+"Hu Pen": {
+"rarity": "elite",
+"research": false
+},
+"Huan Ch'ang": {
+"rarity": "super_rare",
+"research": false
+},
+"Hunter": {
+"rarity": "rare",
+"research": false
+},
+"Hunter META": {
+"rarity": "elite",
+"research": false
+},
+"Hwah Jah": {
+"rarity": "elite",
+"research": false
+},
+"Hwah Jah (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Hyuuga": {
+"rarity": "rare",
+"research": false
+},
+"Hyuuga Retrofit": {
+"rarity": "rare",
+"research": false
+},
+"I-13": {
+"rarity": "super_rare",
+"research": false
+},
+"I-168": {
+"rarity": "super_rare",
+"research": false
+},
+"I-19": {
+"rarity": "super_rare",
+"research": false
+},
+"I-25": {
+"rarity": "elite",
+"research": false
+},
+"I-26": {
+"rarity": "elite",
+"research": false
+},
+"I-404": {
+"rarity": "ultra_rare",
+"research": false
+},
+"I-56": {
+"rarity": "elite",
+"research": false
+},
+"I-58": {
+"rarity": "elite",
+"research": false
+},
+"Ibuki": {
+"rarity": "super_rare",
+"research": true
+},
+"Icarus": {
+"rarity": "elite",
+"research": false
+},
+"Ikaruga": {
+"rarity": "super_rare",
+"research": false
+},
+"Ikazuchi": {
+"rarity": "rare",
+"research": false
+},
+"Illustrious": {
+"rarity": "super_rare",
+"research": false
+},
+"Illustrious μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Impero": {
+"rarity": "super_rare",
+"research": false
+},
+"Implacable": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Inazuma": {
+"rarity": "rare",
+"research": false
+},
+"Independence": {
+"rarity": "elite",
+"research": false
+},
+"Independence Retrofit": {
+"rarity": "elite",
+"research": false
+},
+"Indiana": {
+"rarity": "super_rare",
+"research": false
+},
+"Indianapolis": {
+"rarity": "elite",
+"research": false
+},
+"Indomitable": {
+"rarity": "super_rare",
+"research": false
+},
+"Ingraham": {
+"rarity": "super_rare",
+"research": false
+},
+"Intrepid": {
+"rarity": "super_rare",
+"research": false
+},
+"Iori Minase": {
+"rarity": "super_rare",
+"research": false
+},
+"Ise": {
+"rarity": "rare",
+"research": false
+},
+"Ise Retrofit": {
+"rarity": "rare",
+"research": false
+},
+"Isla von Duerer": {
+"rarity": "super_rare",
+"research": false
+},
+"Isokaze": {
+"rarity": "rare",
+"research": false
+},
+"Isuzu": {
+"rarity": "rare",
+"research": false
+},
+"Izumo": {
+"rarity": "super_rare",
+"research": true
+},
+"Jade": {
+"rarity": "elite",
+"research": false
+},
+"Jamaica": {
+"rarity": "rare",
+"research": false
+},
+"Janus": {
+"rarity": "super_rare",
+"research": false
+},
+"Javelin": {
+"rarity": "elite",
+"research": false
+},
+"Jean Bart": {
+"rarity": "super_rare",
+"research": false
+},
+"Jeanne d'Arc": {
+"rarity": "super_rare",
+"research": false
+},
+"Jenkins": {
+"rarity": "rare",
+"research": false
+},
+"Jersey": {
+"rarity": "rare",
+"research": false
+},
+"Jervis": {
+"rarity": "super_rare",
+"research": false
+},
+"Jintsuu": {
+"rarity": "elite",
+"research": false
+},
+"Jintsuu META": {
+"rarity": "super_rare",
+"research": false
+},
+"Joffre": {
+"rarity": "super_rare",
+"research": false
+},
+"Juneau": {
+"rarity": "rare",
+"research": false
+},
+"Juneau Retrofit": {
+"rarity": "rare",
+"research": false
+},
+"Juno": {
+"rarity": "rare",
+"research": false
+},
+"Junyou": {
+"rarity": "rare",
+"research": false
+},
+"Junyou META": {
+"rarity": "elite",
+"research": false
+},
+"Jupiter": {
+"rarity": "rare",
+"research": false
+},
+"Kaga": {
+"rarity": "super_rare",
+"research": false
+},
+"Kaga(BB)": {
+"rarity": "super_rare",
+"research": false
+},
+"Kagerou": {
+"rarity": "rare",
+"research": false
+},
+"Kaguya Yamai・Yuzuru Yamai": {
+"rarity": "super_rare",
+"research": false
+},
+"Kako": {
+"rarity": "normal",
+"research": false
+},
+"Kala Ideas": {
+"rarity": "super_rare",
+"research": false
+},
+"Kalk": {
+"rarity": "rare",
+"research": false
+},
+"Kamikaze": {
+"rarity": "rare",
+"research": false
+},
+"Kansas": {
+"rarity": "super_rare",
+"research": true
+},
+"Karlsruhe": {
+"rarity": "normal",
+"research": false
+},
+"Kashino": {
+"rarity": "elite",
+"research": false
+},
+"Kasumi": {
+"rarity": "elite",
+"research": false
+},
+"Kasumi META": {
+"rarity": "elite",
+"research": false
+},
+"Kasumi Retrofit": {
+"rarity": "elite",
+"research": false
+},
+"Katsuragi": {
+"rarity": "super_rare",
+"research": false
+},
+"Kawakaze": {
+"rarity": "super_rare",
+"research": false
+},
+"Kawakaze META": {
+"rarity": "super_rare",
+"research": false
+},
+"Kazagumo": {
+"rarity": "super_rare",
+"research": false
+},
+"Kazan": {
+"rarity": "super_rare",
+"research": false
+},
+"Kearsarge": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Kent": {
+"rarity": "rare",
+"research": false
+},
+"Kersaint": {
+"rarity": "elite",
+"research": false
+},
+"Kiev": {
+"rarity": "super_rare",
+"research": false
+},
+"Kii": {
+"rarity": "super_rare",
+"research": false
+},
+"Kimberly": {
+"rarity": "rare",
+"research": false
+},
+"Kimberly META": {
+"rarity": "elite",
+"research": false
+},
+"King George V": {
+"rarity": "super_rare",
+"research": false
+},
+"Kinu": {
+"rarity": "elite",
+"research": false
+},
+"Kinugasa": {
+"rarity": "normal",
+"research": false
+},
+"Kirishima": {
+"rarity": "elite",
+"research": false
+},
+"Kirov": {
+"rarity": "super_rare",
+"research": false
+},
+"Kirov META": {
+"rarity": "super_rare",
+"research": false
+},
+"Kisaragi": {
+"rarity": "normal",
+"research": false
+},
+"Kitakaze": {
+"rarity": "super_rare",
+"research": true
+},
+"Kiyonami": {
+"rarity": "rare",
+"research": false
+},
+"Kizu": {
+"rarity": "elite",
+"research": false
+},
+"Kizuna AI": {
+"rarity": "elite",
+"research": false
+},
+"Klaudia Valentz": {
+"rarity": "super_rare",
+"research": false
+},
+"Kongou": {
+"rarity": "elite",
+"research": false
+},
+"Kongou μ": {
+"rarity": "elite",
+"research": false
+},
+"Kotori Itsuka": {
+"rarity": "super_rare",
+"research": false
+},
+"Krasny Kavkaz": {
+"rarity": "elite",
+"research": false
+},
+"Kronshtadt": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Kumano": {
+"rarity": "elite",
+"research": false
+},
+"Kuroshio": {
+"rarity": "rare",
+"research": false
+},
+"Kursk": {
+"rarity": "super_rare",
+"research": false
+},
+"Kurumi Tokisaki": {
+"rarity": "super_rare",
+"research": false
+},
+"Kuybyshev": {
+"rarity": "super_rare",
+"research": false
+},
+"Köln": {
+"rarity": "normal",
+"research": false
+},
+"Köln (Retrofit)": {
+"rarity": "normal",
+"research": false
+},
+"Köln META": {
+"rarity": "elite",
+"research": false
+},
+"Königsberg": {
+"rarity": "normal",
+"research": false
+},
+"L'Audacieux": {
+"rarity": "super_rare",
+"research": false
+},
+"L'Indomptable": {
+"rarity": "super_rare",
+"research": false
+},
+"L'Opiniâtre": {
+"rarity": "elite",
+"research": false
+},
+"La Galissonnière": {
+"rarity": "elite",
+"research": false
+},
+"La Galissonnière META": {
+"rarity": "elite",
+"research": false
+},
+"Laffey": {
+"rarity": "elite",
+"research": false
+},
+"Laffey II": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Lala Satalin Deviluke": {
+"rarity": "super_rare",
+"research": false
+},
+"Langley": {
+"rarity": "normal",
+"research": false
+},
+"Langley II": {
+"rarity": "elite",
+"research": false
+},
+"Le Hardi": {
+"rarity": "super_rare",
+"research": false
+},
+"Le Malin": {
+"rarity": "super_rare",
+"research": false
+},
+"Le Malin μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Le Mars": {
+"rarity": "rare",
+"research": false
+},
+"Le Terrible": {
+"rarity": "super_rare",
+"research": false
+},
+"Le Triomphant": {
+"rarity": "super_rare",
+"research": false
+},
+"Le Téméraire": {
+"rarity": "elite",
+"research": false
+},
+"Le Téméraire μ": {
+"rarity": "elite",
+"research": false
+},
+"Leander": {
+"rarity": "normal",
+"research": false
+},
+"Leipzig": {
+"rarity": "rare",
+"research": false
+},
+"Lena": {
+"rarity": "elite",
+"research": false
+},
+"Lenja": {
+"rarity": "super_rare",
+"research": false
+},
+"Leonardo da Vinci": {
+"rarity": "super_rare",
+"research": false
+},
+"Lexington": {
+"rarity": "elite",
+"research": false
+},
+"Lexington II": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Li'l Sandy": {
+"rarity": "elite",
+"research": false
+},
+"Libeccio": {
+"rarity": "elite",
+"research": false
+},
+"Lila Decyrus": {
+"rarity": "elite",
+"research": false
+},
+"Lion": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Little Anchorage": {
+"rarity": "elite",
+"research": false
+},
+"Little Bel": {
+"rarity": "elite",
+"research": false
+},
+"Little Cheshire": {
+"rarity": "elite",
+"research": false
+},
+"Little Enterprise": {
+"rarity": "elite",
+"research": false
+},
+"Little Formidable": {
+"rarity": "elite",
+"research": false
+},
+"Little Friedrich": {
+"rarity": "elite",
+"research": false
+},
+"Little Illustrious": {
+"rarity": "elite",
+"research": false
+},
+"Little Prinz Eugen": {
+"rarity": "elite",
+"research": false
+},
+"Little Renown": {
+"rarity": "elite",
+"research": false
+},
+"Little Spee": {
+"rarity": "elite",
+"research": false
+},
+"Little Ägir": {
+"rarity": "elite",
+"research": false
+},
+"Littorio": {
+"rarity": "super_rare",
+"research": false
+},
+"Liverpool": {
+"rarity": "elite",
+"research": false
+},
+"London": {
+"rarity": "elite",
+"research": false
+},
+"London (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Long Island": {
+"rarity": "rare",
+"research": false
+},
+"Louisville": {
+"rarity": "elite",
+"research": false
+},
+"Luna": {
+"rarity": "super_rare",
+"research": false
+},
+"Lung Wu": {
+"rarity": "elite",
+"research": false
+},
+"Lyme": {
+"rarity": "super_rare",
+"research": false
+},
+"Lyon": {
+"rarity": "elite",
+"research": false
+},
+"Lützow": {
+"rarity": "super_rare",
+"research": false
+},
+"Maestrale": {
+"rarity": "elite",
+"research": false
+},
+"Magdeburg": {
+"rarity": "super_rare",
+"research": false
+},
+"Maggiore Baracca": {
+"rarity": "super_rare",
+"research": false
+},
+"Maillé Brézé": {
+"rarity": "elite",
+"research": false
+},
+"Mainz": {
+"rarity": "super_rare",
+"research": true
+},
+"Makinami": {
+"rarity": "elite",
+"research": false
+},
+"Mami Futami": {
+"rarity": "elite",
+"research": false
+},
+"Manchester": {
+"rarity": "elite",
+"research": false
+},
+"Marblehead": {
+"rarity": "rare",
+"research": false
+},
+"Marco Polo": {
+"rarity": "super_rare",
+"research": true
+},
+"Marie Rose": {
+"rarity": "super_rare",
+"research": false
+},
+"Marseillaise": {
+"rarity": "super_rare",
+"research": false
+},
+"Mary Celeste": {
+"rarity": "super_rare",
+"research": false
+},
+"Maryland": {
+"rarity": "elite",
+"research": false
+},
+"Maryland (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Massachusetts": {
+"rarity": "super_rare",
+"research": false
+},
+"Masséna": {
+"rarity": "super_rare",
+"research": false
+},
+"Matchless": {
+"rarity": "elite",
+"research": false
+},
+"Matsukaze": {
+"rarity": "rare",
+"research": false
+},
+"Maury": {
+"rarity": "elite",
+"research": false
+},
+"Maya": {
+"rarity": "super_rare",
+"research": false
+},
+"McCall": {
+"rarity": "normal",
+"research": false
+},
+"Mecklenburg": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Memphis": {
+"rarity": "rare",
+"research": false
+},
+"Memphis META": {
+"rarity": "elite",
+"research": false
+},
+"Michishio": {
+"rarity": "rare",
+"research": false
+},
+"Mikasa": {
+"rarity": "super_rare",
+"research": false
+},
+"Mikazuki": {
+"rarity": "normal",
+"research": false
+},
+"Mikuma": {
+"rarity": "elite",
+"research": false
+},
+"Miller": {
+"rarity": "elite",
+"research": false
+},
+"Minase": {
+"rarity": "elite",
+"research": false
+},
+"Minato Aqua": {
+"rarity": "super_rare",
+"research": false
+},
+"Minazuki": {
+"rarity": "normal",
+"research": false
+},
+"Minneapolis": {
+"rarity": "super_rare",
+"research": false
+},
+"Minsk": {
+"rarity": "elite",
+"research": false
+},
+"Misaki": {
+"rarity": "super_rare",
+"research": false
+},
+"Miyuki": {
+"rarity": "elite",
+"research": false
+},
+"Mogador": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Mogami": {
+"rarity": "elite",
+"research": false
+},
+"Mogami Retrofit": {
+"rarity": "elite",
+"research": false
+},
+"Momo Belia Deviluke": {
+"rarity": "super_rare",
+"research": false
+},
+"Monarch": {
+"rarity": "super_rare",
+"research": true
+},
+"Monica": {
+"rarity": "elite",
+"research": false
+},
+"Montpelier": {
+"rarity": "super_rare",
+"research": false
+},
+"Morrison": {
+"rarity": "elite",
+"research": false
+},
+"Moskva": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Mujina": {
+"rarity": "elite",
+"research": false
+},
+"Mullany": {
+"rarity": "elite",
+"research": false
+},
+"Murasaki": {
+"rarity": "elite",
+"research": false
+},
+"Murasaki Shion": {
+"rarity": "elite",
+"research": false
+},
+"Murmansk": {
+"rarity": "elite",
+"research": false
+},
+"Musashi": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Musketeer": {
+"rarity": "elite",
+"research": false
+},
+"Mutsu": {
+"rarity": "elite",
+"research": false
+},
+"Mutsuki": {
+"rarity": "normal",
+"research": false
+},
+"Myoukou": {
+"rarity": "rare",
+"research": false
+},
+"Nachi": {
+"rarity": "rare",
+"research": false
+},
+"Naganami": {
+"rarity": "elite",
+"research": false
+},
+"Nagara": {
+"rarity": "normal",
+"research": false
+},
+"Nagato": {
+"rarity": "super_rare",
+"research": false
+},
+"Nagato META": {
+"rarity": "super_rare",
+"research": false
+},
+"Nagatsuki": {
+"rarity": "rare",
+"research": false
+},
+"Nagisa": {
+"rarity": "elite",
+"research": false
+},
+"Naka": {
+"rarity": "rare",
+"research": false
+},
+"Nakiri Ayame": {
+"rarity": "elite",
+"research": false
+},
+"Namiko": {
+"rarity": "elite",
+"research": false
+},
+"Nana Astar Deviluke": {
+"rarity": "super_rare",
+"research": false
+},
+"Napoli": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Natori": {
+"rarity": "elite",
+"research": false
+},
+"Natsuiro Matsuri": {
+"rarity": "elite",
+"research": false
+},
+"Nautilus": {
+"rarity": "elite",
+"research": false
+},
+"Nayoro": {
+"rarity": "elite",
+"research": false
+},
+"Nelson": {
+"rarity": "elite",
+"research": false
+},
+"Nelson (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Neptune": {
+"rarity": "super_rare",
+"research": true
+},
+"Nevada": {
+"rarity": "normal",
+"research": false
+},
+"Nevada META": {
+"rarity": "elite",
+"research": false
+},
+"New Jersey": {
+"rarity": "ultra_rare",
+"research": false
+},
+"New Orleans": {
+"rarity": "super_rare",
+"research": false
+},
+"Newcastle": {
+"rarity": "rare",
+"research": false
+},
+"Nicholas": {
+"rarity": "elite",
+"research": false
+},
+"Nicoloso da Recco": {
+"rarity": "elite",
+"research": false
+},
+"Niizuki": {
+"rarity": "elite",
+"research": false
+},
+"Nina Friede": {
+"rarity": "super_rare",
+"research": false
+},
+"Ning Hai": {
+"rarity": "elite",
+"research": false
+},
+"Noire": {
+"rarity": "elite",
+"research": false
+},
+"Norfolk": {
+"rarity": "rare",
+"research": false
+},
+"North Carolina": {
+"rarity": "super_rare",
+"research": false
+},
+"Northampton": {
+"rarity": "rare",
+"research": false
+},
+"Northampton II": {
+"rarity": "super_rare",
+"research": false
+},
+"Noshiro": {
+"rarity": "super_rare",
+"research": false
+},
+"Noshiro μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Nowaki": {
+"rarity": "elite",
+"research": false
+},
+"Nubian": {
+"rarity": "super_rare",
+"research": false
+},
+"Nyotengu": {
+"rarity": "elite",
+"research": false
+},
+"Nürnberg": {
+"rarity": "elite",
+"research": false
+},
+"Observer zero": {
+"rarity": "super_rare",
+"research": false
+},
+"Odin": {
+"rarity": "super_rare",
+"research": true
+},
+"Ognevoy": {
+"rarity": "super_rare",
+"research": false
+},
+"Oite": {
+"rarity": "rare",
+"research": false
+},
+"Oklahoma": {
+"rarity": "normal",
+"research": false
+},
+"Oleg": {
+"rarity": "elite",
+"research": false
+},
+"Omaha": {
+"rarity": "normal",
+"research": false
+},
+"Ooshio": {
+"rarity": "rare",
+"research": false
+},
+"Origami Tobiichi": {
+"rarity": "super_rare",
+"research": false
+},
+"Otto von Alvensleben": {
+"rarity": "super_rare",
+"research": false
+},
+"Oumi": {
+"rarity": "super_rare",
+"research": false
+},
+"Owari": {
+"rarity": "super_rare",
+"research": false
+},
+"Oyashio": {
+"rarity": "rare",
+"research": false
+},
+"Ozornoy": {
+"rarity": "super_rare",
+"research": false
+},
+"Painlevé": {
+"rarity": "super_rare",
+"research": false
+},
+"Pamiat' Merkuria": {
+"rarity": "elite",
+"research": false
+},
+"Pamiat' Merkuria (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Pamiat' Merkuria META": {
+"rarity": "super_rare",
+"research": false
+},
+"Pasadena": {
+"rarity": "elite",
+"research": false
+},
+"Patricia Abelheim": {
+"rarity": "super_rare",
+"research": false
+},
+"Patty": {
+"rarity": "super_rare",
+"research": false
+},
+"Pearl": {
+"rarity": "super_rare",
+"research": false
+},
+"Penelope": {
+"rarity": "elite",
+"research": false
+},
+"Pennsylvania": {
+"rarity": "rare",
+"research": false
+},
+"Pensacola": {
+"rarity": "normal",
+"research": false
+},
+"Perseus": {
+"rarity": "super_rare",
+"research": false
+},
+"Peter Strasser": {
+"rarity": "super_rare",
+"research": false
+},
+"Phoenix": {
+"rarity": "rare",
+"research": false
+},
+"Ping Hai": {
+"rarity": "elite",
+"research": false
+},
+"Pittsburgh": {
+"rarity": "super_rare",
+"research": false
+},
+"Plymouth": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Pola": {
+"rarity": "super_rare",
+"research": false
+},
+"Poltava": {
+"rarity": "elite",
+"research": false
+},
+"Pompeo Magno": {
+"rarity": "super_rare",
+"research": false
+},
+"Portland": {
+"rarity": "rare",
+"research": false
+},
+"Portsmouth Adventure": {
+"rarity": "super_rare",
+"research": false
+},
+"Prince of Wales": {
+"rarity": "super_rare",
+"research": false
+},
+"Princess Hime": {
+"rarity": "super_rare",
+"research": false
+},
+"Princeton": {
+"rarity": "elite",
+"research": false
+},
+"Princeton META": {
+"rarity": "elite",
+"research": false
+},
+"Prinz Adalbert": {
+"rarity": "super_rare",
+"research": false
+},
+"Prinz Eugen": {
+"rarity": "super_rare",
+"research": false
+},
+"Prinz Eugen μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Prinz Heinrich": {
+"rarity": "super_rare",
+"research": false
+},
+"Prinz Rupprecht": {
+"rarity": "super_rare",
+"research": true
+},
+"Prototype Bulin MKII": {
+"rarity": "super_rare",
+"research": false
+},
+"Purple Heart": {
+"rarity": "super_rare",
+"research": false
+},
+"Queen Anne's Revenge": {
+"rarity": "super_rare",
+"research": false
+},
+"Queen Elizabeth": {
+"rarity": "elite",
+"research": false
+},
+"Queen Elizabeth META": {
+"rarity": "super_rare",
+"research": false
+},
+"Quincy": {
+"rarity": "elite",
+"research": false
+},
+"Radford": {
+"rarity": "rare",
+"research": false
+},
+"Raffaello": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Raleigh": {
+"rarity": "normal",
+"research": false
+},
+"Ranger": {
+"rarity": "normal",
+"research": false
+},
+"Regensburg": {
+"rarity": "super_rare",
+"research": false
+},
+"Regensburg META": {
+"rarity": "super_rare",
+"research": false
+},
+"Reisalin Stout": {
+"rarity": "super_rare",
+"research": false
+},
+"Reno": {
+"rarity": "super_rare",
+"research": false
+},
+"Renown": {
+"rarity": "elite",
+"research": false
+},
+"Renown META": {
+"rarity": "super_rare",
+"research": false
+},
+"Repulse": {
+"rarity": "rare",
+"research": false
+},
+"Repulse META": {
+"rarity": "super_rare",
+"research": false
+},
+"Revenge": {
+"rarity": "elite",
+"research": false
+},
+"Richelieu": {
+"rarity": "super_rare",
+"research": false
+},
+"Richmond": {
+"rarity": "normal",
+"research": false
+},
+"Rikka Takarada": {
+"rarity": "super_rare",
+"research": false
+},
+"Ritsuko Akizuki": {
+"rarity": "elite",
+"research": false
+},
+"Rodney": {
+"rarity": "elite",
+"research": false
+},
+"Rodney META": {
+"rarity": "super_rare",
+"research": false
+},
+"Rogue Kaiser Gridman": {
+"rarity": "super_rare",
+"research": false
+},
+"Roma": {
+"rarity": "super_rare",
+"research": false
+},
+"Roon": {
+"rarity": "super_rare",
+"research": true
+},
+"Roon μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Royal Fortune": {
+"rarity": "super_rare",
+"research": false
+},
+"Royal James": {
+"rarity": "elite",
+"research": false
+},
+"Royal Oak": {
+"rarity": "super_rare",
+"research": false
+},
+"Royal.META": {
+"rarity": "super_rare",
+"research": false
+},
+"Ryu Lion": {
+"rarity": "super_rare",
+"research": false
+},
+"Ryuuhou": {
+"rarity": "super_rare",
+"research": false
+},
+"Ryuujou": {
+"rarity": "elite",
+"research": false
+},
+"Saint Louis": {
+"rarity": "super_rare",
+"research": true
+},
+"Sakawa": {
+"rarity": "super_rare",
+"research": false
+},
+"Salt Lake City": {
+"rarity": "normal",
+"research": false
+},
+"San Diego": {
+"rarity": "super_rare",
+"research": false
+},
+"San Diego Retrofit": {
+"rarity": "super_rare",
+"research": false
+},
+"San Francisco": {
+"rarity": "super_rare",
+"research": false
+},
+"San Jacinto": {
+"rarity": "elite",
+"research": false
+},
+"San Juan": {
+"rarity": "rare",
+"research": false
+},
+"Santa Fe": {
+"rarity": "super_rare",
+"research": false
+},
+"Saratoga": {
+"rarity": "elite",
+"research": false
+},
+"Scharnhorst": {
+"rarity": "elite",
+"research": false
+},
+"Scharnhorst META": {
+"rarity": "super_rare",
+"research": false
+},
+"Scylla": {
+"rarity": "super_rare",
+"research": false
+},
+"Seattle": {
+"rarity": "super_rare",
+"research": true
+},
+"Sendai": {
+"rarity": "rare",
+"research": false
+},
+"Serri Glaus": {
+"rarity": "elite",
+"research": false
+},
+"Sevastopol": {
+"rarity": "elite",
+"research": false
+},
+"Seven Seas of Rest": {
+"rarity": "elite",
+"research": false
+},
+"Seydlitz": {
+"rarity": "super_rare",
+"research": false
+},
+"Shandy": {
+"rarity": "super_rare",
+"research": false
+},
+"Shangri-La": {
+"rarity": "super_rare",
+"research": false
+},
+"Sheffield": {
+"rarity": "elite",
+"research": false
+},
+"Sheffield META": {
+"rarity": "elite",
+"research": false
+},
+"Sheffield μ": {
+"rarity": "elite",
+"research": false
+},
+"Shigure": {
+"rarity": "elite",
+"research": false
+},
+"Shimakaze": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Shimanto": {
+"rarity": "super_rare",
+"research": true
+},
+"Shinano": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Shinano-chan": {
+"rarity": "elite",
+"research": false
+},
+"Shirakami Fubuki": {
+"rarity": "super_rare",
+"research": false
+},
+"Shiranui": {
+"rarity": "normal",
+"research": false
+},
+"Shiratsuyu": {
+"rarity": "rare",
+"research": false
+},
+"Shiratsuyu (Retrofit)": {
+"rarity": "rare",
+"research": false
+},
+"Shirayuki": {
+"rarity": "elite",
+"research": false
+},
+"Shizuku": {
+"rarity": "super_rare",
+"research": false
+},
+"Shouhou": {
+"rarity": "rare",
+"research": false
+},
+"Shoukaku": {
+"rarity": "super_rare",
+"research": false
+},
+"Shropshire": {
+"rarity": "rare",
+"research": false
+},
+"Shropshire (Retrofit)": {
+"rarity": "rare",
+"research": false
+},
+"Sims": {
+"rarity": "rare",
+"research": false
+},
+"Sirius": {
+"rarity": "super_rare",
+"research": false
+},
+"Smalley": {
+"rarity": "rare",
+"research": false
+},
+"Soobrazitelny": {
+"rarity": "elite",
+"research": false
+},
+"Souryuu": {
+"rarity": "elite",
+"research": false
+},
+"Souryuu META": {
+"rarity": "super_rare",
+"research": false
+},
+"South Dakota": {
+"rarity": "super_rare",
+"research": false
+},
+"Southampton": {
+"rarity": "rare",
+"research": false
+},
+"Sovetskaya Belorussiya": {
+"rarity": "super_rare",
+"research": false
+},
+"Sovetskaya Rossiya": {
+"rarity": "super_rare",
+"research": false
+},
+"Sovetsky Soyuz": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Specialized Bulin Custom MKIII": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Spence": {
+"rarity": "normal",
+"research": false
+},
+"St. Louis": {
+"rarity": "elite",
+"research": false
+},
+"Stanly": {
+"rarity": "rare",
+"research": false
+},
+"Stephen Potter": {
+"rarity": "elite",
+"research": false
+},
+"Strasbourg": {
+"rarity": "super_rare",
+"research": false
+},
+"Stremitelny": {
+"rarity": "elite",
+"research": false
+},
+"Suffolk": {
+"rarity": "rare",
+"research": false
+},
+"Suffren": {
+"rarity": "elite",
+"research": false
+},
+"Super Gamer Kizuna AI": {
+"rarity": "super_rare",
+"research": false
+},
+"Surcouf": {
+"rarity": "elite",
+"research": false
+},
+"Suruga": {
+"rarity": "super_rare",
+"research": false
+},
+"Sussex": {
+"rarity": "rare",
+"research": false
+},
+"Suzunami": {
+"rarity": "elite",
+"research": false
+},
+"Suzutsuki": {
+"rarity": "super_rare",
+"research": false
+},
+"Suzuya": {
+"rarity": "elite",
+"research": false
+},
+"Svirepy": {
+"rarity": "elite",
+"research": false
+},
+"Swiftsure": {
+"rarity": "super_rare",
+"research": false
+},
+"São Martinho": {
+"rarity": "super_rare",
+"research": false
+},
+"Taekaze": {
+"rarity": "elite",
+"research": false
+},
+"Tai Yuan": {
+"rarity": "elite",
+"research": false
+},
+"Tai Yuan (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Taihou": {
+"rarity": "super_rare",
+"research": false
+},
+"Taihou META": {
+"rarity": "super_rare",
+"research": false
+},
+"Taihou μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Taihou-chan": {
+"rarity": "elite",
+"research": false
+},
+"Takao": {
+"rarity": "super_rare",
+"research": false
+},
+"Tallinn": {
+"rarity": "super_rare",
+"research": false
+},
+"Tamaki": {
+"rarity": "super_rare",
+"research": false
+},
+"Tanikaze": {
+"rarity": "rare",
+"research": false
+},
+"Tartu": {
+"rarity": "elite",
+"research": false
+},
+"Tashkent": {
+"rarity": "super_rare",
+"research": false
+},
+"Tashkent μ": {
+"rarity": "super_rare",
+"research": false
+},
+"Tennessee": {
+"rarity": "rare",
+"research": false
+},
+"Terror": {
+"rarity": "elite",
+"research": false
+},
+"Thatcher": {
+"rarity": "rare",
+"research": false
+},
+"The 2nd": {
+"rarity": "super_rare",
+"research": false
+},
+"Theseus": {
+"rarity": "super_rare",
+"research": false
+},
+"Thüringen": {
+"rarity": "elite",
+"research": false
+},
+"Ticonderoga": {
+"rarity": "super_rare",
+"research": false
+},
+"Ting An": {
+"rarity": "elite",
+"research": false
+},
+"Tirpitz": {
+"rarity": "super_rare",
+"research": false
+},
+"Tohka Yatogami": {
+"rarity": "super_rare",
+"research": false
+},
+"Tokino Sora": {
+"rarity": "super_rare",
+"research": false
+},
+"Tone": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Torricelli": {
+"rarity": "elite",
+"research": false
+},
+"Tosa": {
+"rarity": "super_rare",
+"research": false
+},
+"Trafalgar": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Trento": {
+"rarity": "rare",
+"research": false
+},
+"Trento META": {
+"rarity": "elite",
+"research": false
+},
+"Trial Bulin MKII": {
+"rarity": "super_rare",
+"research": false
+},
+"Trieste": {
+"rarity": "elite",
+"research": false
+},
+"Trinidad": {
+"rarity": "elite",
+"research": false
+},
+"Tsukushi": {
+"rarity": "super_rare",
+"research": false
+},
+"U-101": {
+"rarity": "super_rare",
+"research": false
+},
+"U-110": {
+"rarity": "elite",
+"research": false
+},
+"U-1206": {
+"rarity": "elite",
+"research": false
+},
+"U-31": {
+"rarity": "elite",
+"research": false
+},
+"U-37": {
+"rarity": "super_rare",
+"research": false
+},
+"U-410": {
+"rarity": "elite",
+"research": false
+},
+"U-47": {
+"rarity": "super_rare",
+"research": false
+},
+"U-522": {
+"rarity": "elite",
+"research": false
+},
+"U-552": {
+"rarity": "super_rare",
+"research": false
+},
+"U-556": {
+"rarity": "elite",
+"research": false
+},
+"U-556 META": {
+"rarity": "super_rare",
+"research": false
+},
+"U-557": {
+"rarity": "elite",
+"research": false
+},
+"U-73": {
+"rarity": "elite",
+"research": false
+},
+"U-81": {
+"rarity": "super_rare",
+"research": false
+},
+"U-96": {
+"rarity": "super_rare",
+"research": false
+},
+"Ugolino Vivaldi": {
+"rarity": "elite",
+"research": false
+},
+"Ulrich von Hutten": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Umikaze": {
+"rarity": "elite",
+"research": false
+},
+"Unicorn": {
+"rarity": "elite",
+"research": false
+},
+"Unicorn (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Universal Bulin": {
+"rarity": "elite",
+"research": false
+},
+"Unryuu": {
+"rarity": "super_rare",
+"research": false
+},
+"Unzen": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Urakaze": {
+"rarity": "rare",
+"research": false
+},
+"Uranami": {
+"rarity": "elite",
+"research": false
+},
+"Uzuki": {
+"rarity": "normal",
+"research": false
+},
+"Valiant": {
+"rarity": "elite",
+"research": false
+},
+"Vampire": {
+"rarity": "elite",
+"research": false
+},
+"Vampire META": {
+"rarity": "elite",
+"research": false
+},
+"Vanguard": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Vauquelin": {
+"rarity": "elite",
+"research": false
+},
+"Vert": {
+"rarity": "elite",
+"research": false
+},
+"Vestal": {
+"rarity": "elite",
+"research": false
+},
+"Vestal META": {
+"rarity": "elite",
+"research": false
+},
+"Victorious": {
+"rarity": "super_rare",
+"research": false
+},
+"Vincennes": {
+"rarity": "elite",
+"research": false
+},
+"Vincenzo Gioberti": {
+"rarity": "elite",
+"research": false
+},
+"Vittorio Cuniberti": {
+"rarity": "super_rare",
+"research": true
+},
+"Vittorio Veneto": {
+"rarity": "super_rare",
+"research": false
+},
+"Volga": {
+"rarity": "super_rare",
+"research": false
+},
+"Voroshilov": {
+"rarity": "super_rare",
+"research": false
+},
+"Wakaba": {
+"rarity": "rare",
+"research": false
+},
+"Wakatsuki": {
+"rarity": "super_rare",
+"research": false
+},
+"Warspite": {
+"rarity": "super_rare",
+"research": false
+},
+"Warspite (Retrofit)": {
+"rarity": "super_rare",
+"research": false
+},
+"Warspite Retrofit": {
+"rarity": "super_rare",
+"research": false
+},
+"Washington": {
+"rarity": "super_rare",
+"research": false
+},
+"Wasp": {
+"rarity": "rare",
+"research": false
+},
+"Watarase": {
+"rarity": "super_rare",
+"research": false
+},
+"Weser": {
+"rarity": "elite",
+"research": false
+},
+"West Virginia": {
+"rarity": "elite",
+"research": false
+},
+"West Virginia (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"White Heart": {
+"rarity": "super_rare",
+"research": false
+},
+"Whydah": {
+"rarity": "elite",
+"research": false
+},
+"Wichita": {
+"rarity": "elite",
+"research": false
+},
+"Wichita META": {
+"rarity": "super_rare",
+"research": false
+},
+"William D. Porter": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Yamakaze": {
+"rarity": "elite",
+"research": false
+},
+"Yamashiro": {
+"rarity": "rare",
+"research": false
+},
+"Yamashiro META": {
+"rarity": "elite",
+"research": false
+},
+"Yamashiro Retrofit": {
+"rarity": "rare",
+"research": false
+},
+"Yat Sen": {
+"rarity": "elite",
+"research": false
+},
+"Yat Sen (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Ying Swei": {
+"rarity": "elite",
+"research": false
+},
+"Ying Swei (Retrofit)": {
+"rarity": "elite",
+"research": false
+},
+"Yoizuki": {
+"rarity": "elite",
+"research": false
+},
+"Yorck": {
+"rarity": "elite",
+"research": false
+},
+"York": {
+"rarity": "elite",
+"research": false
+},
+"Yorktown": {
+"rarity": "elite",
+"research": false
+},
+"Yorktown II": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Yorktown META": {
+"rarity": "super_rare",
+"research": false
+},
+"Yoshino": {
+"rarity": "super_rare",
+"research": false
+},
+"Yui Kotegawa": {
+"rarity": "elite",
+"research": false
+},
+"Yukikaze": {
+"rarity": "super_rare",
+"research": false
+},
+"Yukino": {
+"rarity": "super_rare",
+"research": false
+},
+"Yume Minami": {
+"rarity": "super_rare",
+"research": false
+},
+"Yumi": {
+"rarity": "super_rare",
+"research": false
+},
+"Yumia Liessfeldt": {
+"rarity": "super_rare",
+"research": false
+},
+"Yura": {
+"rarity": "elite",
+"research": false
+},
+"Yuubari": {
+"rarity": "elite",
+"research": false
+},
+"Yuudachi": {
+"rarity": "super_rare",
+"research": false
+},
+"Yuudachi META": {
+"rarity": "super_rare",
+"research": false
+},
+"Yuugure": {
+"rarity": "rare",
+"research": false
+},
+"Yūyaki": {
+"rarity": "elite",
+"research": false
+},
+"Z1": {
+"rarity": "elite",
+"research": false
+},
+"Z11": {
+"rarity": "elite",
+"research": false
+},
+"Z13": {
+"rarity": "elite",
+"research": false
+},
+"Z16": {
+"rarity": "elite",
+"research": false
+},
+"Z18": {
+"rarity": "rare",
+"research": false
+},
+"Z19": {
+"rarity": "rare",
+"research": false
+},
+"Z2": {
+"rarity": "elite",
+"research": false
+},
+"Z20": {
+"rarity": "normal",
+"research": false
+},
+"Z21": {
+"rarity": "normal",
+"research": false
+},
+"Z23": {
+"rarity": "elite",
+"research": false
+},
+"Z23- 传说级战士": {
+"rarity": "super_rare",
+"research": false
+},
+"Z24": {
+"rarity": "elite",
+"research": false
+},
+"Z25": {
+"rarity": "elite",
+"research": false
+},
+"Z26": {
+"rarity": "elite",
+"research": false
+},
+"Z28": {
+"rarity": "elite",
+"research": false
+},
+"Z35": {
+"rarity": "elite",
+"research": false
+},
+"Z36": {
+"rarity": "elite",
+"research": false
+},
+"Z43": {
+"rarity": "elite",
+"research": false
+},
+"Z43—幼儿园": {
+"rarity": "elite",
+"research": false
+},
+"Z46": {
+"rarity": "super_rare",
+"research": false
+},
+"Z47": {
+"rarity": "super_rare",
+"research": false
+},
+"Z47—幼儿园": {
+"rarity": "super_rare",
+"research": false
+},
+"Z52": {
+"rarity": "ultra_rare",
+"research": false
+},
+"Z9": {
+"rarity": "elite",
+"research": false
+},
+"Zara": {
+"rarity": "super_rare",
+"research": false
+},
+"Zeppy": {
+"rarity": "elite",
+"research": false
+},
+"Zuihou": {
+"rarity": "super_rare",
+"research": false
+},
+"Zuikaku": {
+"rarity": "super_rare",
+"research": false
+},
+"Ägir": {
+"rarity": "ultra_rare",
+"research": true
+},
+"Émile Bertin": {
+"rarity": "elite",
+"research": false
+},
+"Épée": {
+"rarity": "elite",
+"research": false
+},
+"Ōkami Mio": {
+"rarity": "elite",
+"research": false
+},
+"不屈-王国军守护骑士": {
+"rarity": "super_rare",
+"research": false
+},
+"亚尔薇特—幼儿园": {
+"rarity": "super_rare",
+"research": false
+},
+"仲裁者·提尔瑞特·VII": {
+"rarity": "ultra_rare",
+"research": false
+},
+"企业·META": {
+"rarity": "super_rare",
+"research": false
+},
+"倔强-王国军二级魔法师": {
+"rarity": "super_rare",
+"research": false
+},
+"利物浦-神官": {
+"rarity": "super_rare",
+"research": false
+},
+"前卫-王国军方旗骑士": {
+"rarity": "super_rare",
+"research": false
+},
+"努比亚人-药剂师": {
+"rarity": "super_rare",
+"research": false
+},
+"圣女贞德-王国军圣女": {
+"rarity": "super_rare",
+"research": false
+},
+"埃尔德里奇-幼儿园": {
+"rarity": "super_rare",
+"research": false
+},
+"基洛夫·META（后排）": {
+"rarity": "elite",
+"research": false
+},
+"拉菲-传说级魔法师": {
+"rarity": "super_rare",
+"research": false
+},
+"朴茨茅斯冒险号（后排）": {
+"rarity": "super_rare",
+"research": false
+},
+"标枪-传说级勇者": {
+"rarity": "super_rare",
+"research": false
+},
+"独角兽-见习神官": {
+"rarity": "super_rare",
+"research": false
+},
+"约克公爵—幼儿园": {
+"rarity": "super_rare",
+"research": false
+},
+"绫波-传说级格斗家": {
+"rarity": "super_rare",
+"research": false
+},
+"腓特烈·卡尔-钢铁教会机械师": {
+"rarity": "super_rare",
+"research": false
+},
+"阿尔及利亚-王国军方旗骑士": {
+"rarity": "super_rare",
+"research": false
+},
+"霞飞-战斗天使": {
+"rarity": "super_rare",
+"research": false
+},
+"马可波罗（后排 原皮）": {
+"rarity": "super_rare",
+"research": false
+},
+"马可波罗（圣座 前排）": {
+"rarity": null,
+"research": false
+},
+"马可波罗（王座 前排）": {
+"rarity": null,
+"research": false
+},
+"鲁莽-王国军二级魔法师": {
+"rarity": "super_rare",
+"research": false
+},
+"？？？？？": {
+"rarity": "ultra_rare",
+"research": false
+}
+}

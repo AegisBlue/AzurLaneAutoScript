@@ -246,7 +246,8 @@
 
   <footer>
     “—” means not collected yet (run the Ship Census tool in ALAS → Tools).
-    “n/a” fields don’t apply to that ship (META ships enhance via the META Lab).
+    “n/a” fields don’t apply to that ship (META ships upgrade via the META Lab,
+    PR research ships via the Shipyard).
     The “125?” pin marks ships you intend to take to Lv.125; pins and the cap
     toggle are saved in this browser.
   </footer>
@@ -304,7 +305,7 @@ function judge(ship) {
     : [ship.level >= cap ? 'done' : 'pending', ship.level + '/' + cap];
   c.affinity = ship.affinity == null ? ['unknown', '—']
     : [ship.affinity >= 100 ? 'done' : 'pending', String(ship.affinity)];
-  c.enhance = ship.is_meta ? ['na', 'n/a']
+  c.enhance = (ship.is_meta || ship.is_research) ? ['na', 'n/a']
     : ship.enhance_maxed == null ? ['unknown', '—']
     : [ship.enhance_maxed ? 'done' : 'pending', ship.enhance_maxed ? 'MAX' : 'open'];
   c.lb = (ship.lb_current == null || ship.lb_max == null) ? ['unknown', '—']
@@ -436,6 +437,7 @@ function render() {
       (ship.oathed ? ' <span title="Oathed">💍</span>' : '') +
       (ship.cognition_awakened ? ' <span title="Cognition awakened">🧠</span>' : '') +
       (ship.is_meta ? '<span class="badge">META</span>' : '') +
+      (ship.is_research ? '<span class="badge">PR</span>' : '') +
       (ship.missing ? '<span class="badge" title="Not seen in the last full sweep">gone?</span>' : '');
     return '<tr' + (ship.missing ? ' class="missing-row"' : '') + '>' +
       '<td class="nm-cell">' + nameBits + '</td>' +
