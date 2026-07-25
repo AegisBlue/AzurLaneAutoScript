@@ -231,6 +231,7 @@ class ShipCensus(Dock):
             return
 
         for _ in range(skip):
+            self.device.click_record_clear()
             if not self.ship_view_next_safe():
                 logger.info('Dock ended during resume skip, sweep was already complete')
                 store.sweep_end(complete=True)
@@ -649,11 +650,15 @@ class ShipCensus(Dock):
             if not DOCK_SCROLL.appear(main=self) or DOCK_SCROLL.at_bottom(main=self):
                 break
             DOCK_SCROLL.next_page(main=self)
+            # Dozens of consecutive scroll swipes are legitimate here; without
+            # this the 12-same-button safety raises GameTooManyClickError
+            self.device.click_record_clear()
             self.device.sleep((1.0, 1.4))
 
         self.overlay_set(False)
         if DOCK_SCROLL.appear(main=self):
             DOCK_SCROLL.set_top(main=self)
+            self.device.click_record_clear()
         self.device.sleep((0.6, 1.0))
         return entries
 
