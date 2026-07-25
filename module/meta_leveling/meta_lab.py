@@ -911,15 +911,20 @@ class MetaLab(Dock):
                         continue
                     continue
                 # Requirement unreadable: either the star-up celebration or
-                # an unknown dialog covers the screen. Photograph it once
-                # for diagnosis, then tap it away.
+                # a dialog covers the screen.
                 unreadable += 1
+                if unreadable <= 2:
+                    # Dialogs fade in dimmed (with a loading spinner) and
+                    # cannot be matched yet - wait for the screen to settle
+                    # instead of tapping, or the tap cancels the dialog.
+                    self.device.sleep((0.8, 1.2))
+                    continue
                 if clicked and not dialog_logged:
                     self.save_debug_screenshot('activation_dialog')
                     dialog_logged = True
                 self.device.click(LAB_DISMISS)
                 self.device.sleep((1.0, 1.4))
-                if unreadable >= 6:
+                if unreadable >= 8:
                     logger.info('Requirement gone, activation chain complete')
                     return
 
