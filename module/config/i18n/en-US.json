@@ -1270,7 +1270,7 @@
   "MetaLeveling": {
     "_info": {
       "name": "META Leveling Settings",
-      "help": "Farms the configured campaign stage with your META fleet and checks the ships between batches: keeps a skill actively gaining EXP on each ship, performs limit break and rigging fortification when possible, and swaps fully maxed ships out for unfinished META ships. Set up the fleet once (healer included); the task manages the other slots. Disables itself when every META ship is complete."
+      "help": "Farms the configured campaign stage with the META fleet and swaps ships that reach Target Level for the next unfinished META (highest level first). Fleet 1 is ALWAYS the managed META fleet - set it up once with your healer/clearer and the task handles the rest of its slots. Fleet 2 is optional and never touched: pick a mob/boss Fleet Order and put a strong user-managed boss fleet there for harder stages. Skills, fortification and Somatic Activation are handled by the META Lab task."
     },
     "CheckInterval": {
       "name": "Runs Between Ship Checks",

@@ -61,22 +61,19 @@ class MetaLeveling(CampaignRun, Dock):
     @property
     def fleet_to_attack(self):
         """
-        Slot index (1 or 2) of the attacking fleet on the formation page.
+        Emotion slot of the managed fleet. By convention fleet 1 is ALWAYS
+        the META fleet regardless of FleetOrder; fleet 2, when used
+        (mob/boss orders), is a user-managed boss fleet this task never
+        touches.
         """
-        if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all':
-            return 2
-        else:
-            return 1
+        return 1
 
     @property
     def fleet_to_attack_index(self):
         """
-        In-game fleet number (1-6) of the attacking fleet.
+        In-game fleet number (1-6) of the managed META fleet.
         """
-        if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all':
-            return self.config.Fleet_Fleet2
-        else:
-            return self.config.Fleet_Fleet1
+        return self.config.Fleet_Fleet1
 
     @property
     def target_level(self):

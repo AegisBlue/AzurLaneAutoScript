@@ -62,6 +62,9 @@ GemsFarming:
     AutoSearchMode: sub_standby
     DistanceToBoss: use_open_ocean_support
 # Custom task, not from upstream ALAS
+# Fleet 1 is always the managed META fleet (inspection/swapping); fleet 2
+# is optional and user-managed (e.g. a strong boss fleet), so FleetOrder
+# is NOT restricted here.
 MetaLeveling:
   Campaign:
     Event: campaign_main
@@ -71,11 +74,6 @@ MetaLeveling:
     StageIncrease: false
     GetNewShip: false
     ReachLevel: 0
-  Fleet:
-    FleetOrder:
-      display: display
-      value: fleet1_all_fleet2_standby
-      option: [ fleet1_all_fleet2_standby, fleet1_standby_fleet2_all ]
 
 # ==================== Event ====================
 
