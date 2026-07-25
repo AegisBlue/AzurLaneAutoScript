@@ -224,10 +224,10 @@ class MetaLab(Dock):
 
     def hub_goto(self, button, check, skip_first_screenshot=True):
         """
-        From the hub, enter a subscreen.
+        From the hub, enter a subscreen with a reliable check element.
 
         Args:
-            button (Button): hub box to click (HUB_ACTIVATION etc.)
+            button (Button): hub box to click (HUB_RESEARCH etc.)
             check (Button): appears on the destination screen
         """
         timeout = Timer(10, count=10).start()
@@ -244,6 +244,34 @@ class MetaLab(Dock):
                 logger.warning(f'hub_goto {button} timeout')
                 return False
             if self.is_in_hub() and self.appear(button, offset=(20, 20), interval=3):
+                self.device.click(button)
+                continue
+
+    def hub_goto_subscreen(self, button, skip_first_screenshot=True):
+        """
+        From the hub, enter a subscreen whose own header CANNOT be template
+        matched (the fortification and activation headers sit on art-tinted
+        panels that vary per ship). Success = still in the lab but no
+        longer on the hub; the pass afterwards guards itself with opaque
+        elements (buttons, OCR reads).
+
+        Args:
+            button (Button): hub box to click (HUB_FORTIFY / HUB_ACTIVATION)
+        """
+        timeout = Timer(10, count=10).start()
+        self.interval_clear(button)
+        while 1:
+            if skip_first_screenshot:
+                skip_first_screenshot = False
+            else:
+                self.device.screenshot()
+
+            if self.is_in_lab() and not self.appear(HUB_ACTIVATION, offset=(20, 20)):
+                return True
+            if timeout.reached():
+                logger.warning(f'hub_goto_subscreen {button} timeout')
+                return False
+            if self.appear(button, offset=(20, 20), interval=3):
                 self.device.click(button)
                 continue
 
@@ -515,7 +543,11 @@ class MetaLab(Dock):
                     continue
                 if result == 'no_books':
                     return 'out_of_books'
-                return 'failed'
+                # 'failed': often the batch DID apply but a skill-max
+                # celebration hid the result - re-read the panel so the
+                # maxed notice can settle it; the card timeout bounds this
+                self.device.sleep((0.8, 1.2))
+                continue
 
             # Selected but no actionable panel content yet - wait for it
             continue
@@ -613,34 +645,44 @@ class MetaLab(Dock):
         self.device.click(QT_CONFIRM)
         self.device.sleep((1.2, 1.8))
 
-        # Verify via owned delta; the dialog stays open after Confirm
+        # Verify via owned delta; the dialog stays open after Confirm.
+        # Maxing a skill throws a celebration overlay on top of the dialog
+        # (the owned count then reads 0) - dismiss anything in the way.
         result = 'failed'
-        confirm_timer = Timer(10, count=10).start()
+        confirm_timer = Timer(15, count=15).start()
         while 1:
             self.device.screenshot()
             if self.handle_popup_confirm('QUICK_TRAIN'):
                 continue
+            if self.handle_lab_info_dialog():
+                continue
             if self.appear(QT_CHECK, offset=(20, 20)):
                 owned_now = OCR_QT_T1_OWNED.ocr(self.device.image)
-                spent = owned - owned_now
-                if 0 < spent <= target:
-                    current_now, _, total_now = OCR_QT_PROGRESS.ocr(self.device.image)
-                    logger.info(f'Quick Train spent {spent} books, progress '
-                                f'{current_now}/{total_now}')
-                    if not self.t1_book_exp and total_now == total \
-                            and current_now > current:
-                        per = (current_now - current) / spent
-                        if per >= 1 and abs(per - round(per)) < 0.01:
-                            self.t1_book_exp = int(round(per))
-                            logger.info(f'Calibrated T1 book EXP: {self.t1_book_exp}')
-                    result = 'fed'
-                    break
+                if owned_now > 0:
+                    spent = owned - owned_now
+                    if 0 < spent <= target:
+                        current_now, _, total_now = OCR_QT_PROGRESS.ocr(self.device.image)
+                        logger.info(f'Quick Train spent {spent} books, progress '
+                                    f'{current_now}/{total_now}')
+                        if not self.t1_book_exp and total_now == total \
+                                and current_now > current:
+                            per = (current_now - current) / spent
+                            if per >= 1 and abs(per - round(per)) < 0.01:
+                                self.t1_book_exp = int(round(per))
+                                logger.info(f'Calibrated T1 book EXP: {self.t1_book_exp}')
+                        result = 'fed'
+                        break
+                # owned unreadable or unchanged yet: wait it out
             elif self.appear(TACTICS_CHECK, offset=(20, 20)):
                 # Dialog closed on its own (possible on skill level max)
                 logger.info('Quick Train dialog closed after confirm')
                 return 'fed'
+            else:
+                # Neither dialog nor tactics screen: celebration overlay
+                self.device.click(LAB_DISMISS)
+                self.device.sleep((0.8, 1.2))
             if confirm_timer.reached():
-                logger.warning('Quick Train confirm produced no owned change')
+                logger.warning('Quick Train confirm result not verified')
                 break
 
         self.qt_close()
@@ -795,11 +837,14 @@ class MetaLab(Dock):
         """
         On the Somatic Activation screen: press Activation while the level
         requirement is met (star chains allowed). Stops when requirements
-        are unmet or nothing changes.
+        are unmet or nothing changes. Never relies on the screen header
+        (art-tinted); the requirement OCR and the red Activation button are
+        the opaque anchors, and unreadable stretches are treated as the
+        star-up celebration overlay.
 
         Pages:
-            in: ACT_CHECK
-            out: ACT_CHECK
+            in: somatic activation screen
+            out: unchanged (or celebration dismissed)
         """
         for _ in range(5):
             self.device.screenshot()
@@ -812,8 +857,9 @@ class MetaLab(Dock):
                 return
             logger.info(f'Activation requirement met (level {current}), activating')
             before = (current, met)
-            timeout = Timer(15, count=15).start()
+            timeout = Timer(20, count=20).start()
             self.interval_clear(ACT_BUTTON)
+            unreadable = 0
             while 1:
                 self.device.screenshot()
                 if timeout.reached():
@@ -825,17 +871,24 @@ class MetaLab(Dock):
                     continue
                 if self.handle_info_bar():
                     continue
-                if self.appear(ACT_CHECK, offset=(20, 20)):
-                    state = self.read_activation_requirement()
+                state = self.read_activation_requirement()
+                if state[0] > 0:
+                    unreadable = 0
                     if (state[0], state[2]) != before:
                         logger.info(f'Activation done, requirement state now {state}')
                         break
                     if self.appear_then_click(ACT_BUTTON, offset=(20, 20), interval=4):
                         continue
                     continue
-                # Full-screen star-up celebration covers ACT_CHECK
+                # Requirement unreadable: the star-up celebration covers
+                # the screen - tap it away; persistent unreadability means
+                # the ship just reached full activation (requirements gone)
+                unreadable += 1
                 self.device.click(LAB_DISMISS)
                 self.device.sleep((1.0, 1.4))
+                if unreadable >= 6:
+                    logger.info('Requirement gone, activation chain complete')
+                    return
 
     # ------------------------------------------------------------- per ship
 
@@ -875,15 +928,16 @@ class MetaLab(Dock):
                 self.tactics_pass()
                 self.subscreen_back_to_hub()
 
-        # Rigging fortification
+        # Rigging fortification (header is art-tinted -> left-hub entry,
+        # the pass guards itself with the materials OCR + Fortify button)
         if self.config.MetaLab_DoFortify and fortify_badge == 'alert':
-            if self.hub_goto(HUB_FORTIFY, FORTIFY_CHECK):
+            if self.hub_goto_subscreen(HUB_FORTIFY):
                 self.fortify_pass()
                 self.subscreen_back_to_hub()
 
-        # Somatic activation
+        # Somatic activation (same: left-hub entry, requirement OCR anchors)
         if self.config.MetaLab_DoActivation and activation_badge == 'alert':
-            if self.hub_goto(HUB_ACTIVATION, ACT_CHECK):
+            if self.hub_goto_subscreen(HUB_ACTIVATION):
                 self.activation_pass()
                 self.subscreen_back_to_hub()
 
