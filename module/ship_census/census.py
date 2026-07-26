@@ -257,6 +257,9 @@ GRID_DRAG_Y = 620
 GRID_DRAG_ROWS_MAX = 2
 GRID_REWIND_LIMIT = 3
 GRID_STUCK_LIMIT = 2
+# Screens in a row that may come back without a single readable card before the
+# sweep gives up (see grid_sweep - a drag can open a ship by accident)
+GRID_BLANK_LIMIT = 3
 # Ship-to-ship swipe boxes, (area, stroke length), tried in order. The stock
 # equipment SWIPE_AREA reaches y=527, where the secretary dialogue bubble
 # swallows drags (live: a sweep died at ship 2 when both random swipe points
@@ -1171,9 +1174,32 @@ class ShipCensus(Dock):
         prev_flat = []
         rewinds = 0
         stuck = 0
+        blank = 0
         for page in range(GRID_PAGE_LIMIT):
             rows, _ = self.read_grid_page_best(page)
             flat = [pair for row in rows for pair in row]
+
+            if not flat:
+                # No cards at all. A drag whose list cannot move gets taken as a
+                # tap on the card underneath, which opens that ship - and with
+                # no cards to read the sweep used to just keep dragging on the
+                # ship's page (live: minutes of it, no log to say so). Heal.
+                blank += 1
+                if self.appear(SHIP_DETAIL_CHECK, offset=(20, 20)):
+                    logger.warning('A drag opened a ship instead of scrolling, backing out '
+                                   'to the dock')
+                    self.detail_exit_to_dock()
+                    if not self.overlay_is_on():
+                        self.overlay_set(True)
+                    continue
+                if blank > GRID_BLANK_LIMIT:
+                    logger.warning('Grid sweep read no cards {} screens running, stopping '
+                                   'after {} cards'.format(blank, len(entries)))
+                    break
+                logger.info('Grid screen {} held no readable card, retrying'.format(page))
+                self.device.sleep((1.0, 1.4))
+                continue
+            blank = 0
 
             if prev_flat and [hp for hp, _ in flat] == [hp for hp, _ in prev_flat]:
                 stuck += 1
@@ -1294,6 +1320,19 @@ class ShipCensus(Dock):
             if ended:
                 break
         return out, ended
+
+    def appear_then_back_from_ship(self):
+        """
+        True (having backed out) if a ship's detail page is open when the dock
+        was expected. Dock drags open ships by accident: when the list cannot
+        move, the gesture registers as a tap on the card under the stroke.
+        """
+        self.device.screenshot()
+        if not self.appear(SHIP_DETAIL_CHECK, offset=(20, 20)):
+            return False
+        logger.warning('A dock drag opened a ship, backing out')
+        self.detail_exit_to_dock()
+        return True
 
     def grid_drag_rows(self, rows):
         """
@@ -1515,6 +1554,11 @@ class ShipCensus(Dock):
             step = min(remaining, GRID_DRAG_ROWS_MAX)
             self.grid_drag_rows(step)
             remaining -= step
+            # A drag the list cannot follow is taken as a tap and opens the card
+            # underneath; carrying on would drag on that ship's page
+            if self.appear_then_back_from_ship():
+                if not self.overlay_is_on():
+                    self.overlay_set(True)
         self.grid_wait_stable()
         target_hp = grid[index][0] if 0 <= index < len(grid) else None
         point = self.dock_card_point(self.device.image, index % 7, target_hp, after_hp)

@@ -114,6 +114,13 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   12 consecutive same-button actions raise GameTooManyClickError.
 - Screens are read only once `wait_until_stable` says the dock has settled, and
   re-read (up to 3×) while any card's values come back unreadable.
+- **A dock drag can open a ship.** When the list cannot move (bottom of the dock,
+  or a frame where it will not follow), the stroke registers as a tap on the card
+  underneath. A screen with no readable card therefore means "check whether we
+  are still on the dock", not "scroll further": the sweep backs out of the ship
+  page (`appear_then_back_from_ship`), restores the overlay and carries on, and
+  gives up after `GRID_BLANK_LIMIT` blank screens. Live, without this the sweep
+  dragged on a ship's page for minutes and logged nothing but `Drag ...` lines.
 
 **Detail page**
 - The detail page lands on the Info view. Ship-to-ship swipes survive sidebar
