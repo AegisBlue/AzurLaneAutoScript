@@ -105,17 +105,28 @@ SKILL_NAME_AREAS = [(765 + 188 * i, 530, 869 + 188 * i, 562) for i in range(3)]
 # the model garbles the stylized band; each entry is a set of fragments that
 # must all appear. Observed reads: 'outnsault', 'outnsalt', 'butssaut n',
 # 'lsirenkiller', 'lsrenkiller', 'lirenkiller', 'sirenkiler'.
-FIXED_SKILL_PATTERNS = (
+AOA_SKILL_PATTERNS = (
     ('assa',),
     ('sault',),
     ('ssaut',),
     ('out', 'salt'),
     ('out', 'saul'),
     ('out', 'ssal'),
+)
+# Siren Killer I/II/III sits on every PR/DR research ship and nothing else, so
+# reading it is a positive identification of one - which matters far beyond the
+# skill's own max, because a research ship's sidebar has no Enhance tab and
+# hunting for one there navigates into the Shipyard.
+SIREN_SKILL_PATTERNS = (
     ('renkil',),
     ('irenki',),
     ('sirenk',),
 )
+FIXED_SKILL_PATTERNS = AOA_SKILL_PATTERNS + SIREN_SKILL_PATTERNS
+
+
+def _match_patterns(text, patterns):
+    return any(all(frag in text for frag in pattern) for pattern in patterns)
 
 
 def match_fixed_skill(text):
@@ -124,9 +135,13 @@ def match_fixed_skill(text):
         text (str): Squashed lowercase alnum OCR of a skill name band.
 
     Returns:
-        bool: True if the name belongs to a skill that cannot be leveled.
+        str: 'siren' or 'aoa' for a skill that cannot be leveled, '' otherwise.
     """
-    return any(all(frag in text for frag in pattern) for pattern in FIXED_SKILL_PATTERNS)
+    if _match_patterns(text, SIREN_SKILL_PATTERNS):
+        return 'siren'
+    if _match_patterns(text, AOA_SKILL_PATTERNS):
+        return 'aoa'
+    return ''
 
 # ---------------- enhance tab ----------------
 
@@ -249,7 +264,38 @@ def _load_ship_names():
 
 
 SHIP_NAMES = _load_ship_names()
-_NAME_SQUASH = {re.sub(r'[^a-z0-9]', '', n.lower()): n for n in SHIP_NAMES}
+
+
+def _squash(name):
+    """
+    Comparison key for an OCR'd ship name.
+
+    The Greek mu of the u ships folds to 'u' rather than being dropped: it used
+    to be stripped as non-alphanumeric, which made 'Roon' and 'Roon u' the same
+    key, so one of the pair silently won the lookup. That is not cosmetic -
+    Roon is a PR research ship and Roon u is not, and the wrong answer sends the
+    enhance-tab search into the Shipyard.
+    """
+    return re.sub(r'[^a-z0-9]', '', str(name).lower().replace('μ', 'u').replace('µ', 'u'))
+
+
+_NAME_SQUASH = {}
+for _name in SHIP_NAMES:
+    _NAME_SQUASH.setdefault(_squash(_name), []).append(_name)
+
+# OCR often loses the mu altogether ('Roon+' for a ship called Roon u), which
+# lands the read on the base ship's key. This records, per base key, every
+# canonical name it could really have been - so a name that might be either half
+# of a research/u pair can be treated carefully instead of confidently wrongly.
+# Both keys of a pair are registered: a read of either one might have been of
+# the other, so both should be handled with the same care.
+_NAME_AMBIGUOUS = {}
+for _name in SHIP_NAMES:
+    if 'μ' in _name or 'µ' in _name:
+        _base = _squash(_name.replace('μ', '').replace('µ', ''))
+        _pair = set(_NAME_SQUASH.get(_base, [])) | {_name}
+        for _key in (_base, _squash(_name)):
+            _NAME_AMBIGUOUS.setdefault(_key, set()).update(_pair)
 
 
 def _names_alike(a, b, cutoff=0.8):
@@ -275,6 +321,10 @@ GRID_DRAG_Y = 620
 GRID_DRAG_ROWS_MAX = 2
 GRID_REWIND_LIMIT = 3
 GRID_STUCK_LIMIT = 2
+# Cards in an overlap that must be HP matches rather than wildcards before two
+# screens count as overlapping - see overlap_length. A dock row is 7 cards, so
+# this is "most of a row agrees", which no unrelated pair of screens manages.
+GRID_OVERLAP_MIN_HITS = 4
 # Screens in a row that may come back without a single readable card before the
 # sweep gives up (see grid_sweep - a drag can open a ship by accident)
 GRID_BLANK_LIMIT = 3
@@ -989,7 +1039,8 @@ class ShipCensus(Dock):
         level = self.read_level()  # settles info bars, leaves a fresh frame
         image = self.device.image
 
-        name, rarity, dict_research = self.canonical_name(self._clean_name(OCR_NAME.ocr(image)))
+        name, rarity, dict_research, ambiguous_research = \
+            self.canonical_name(self._clean_name(OCR_NAME.ocr(image)))
         hp = OCR_DETAIL_HP.ocr(image)
 
         # Lab-type ships (META / PR research) have a "Research" top tab and
@@ -1000,12 +1051,29 @@ class ShipCensus(Dock):
         # ships the name data does not know yet.
         is_meta = bool(name and name.endswith('META'))
         no_enhance = bool(name and NO_ENHANCE_HINT in name.lower())
-        is_research = dict_research
+        skills, siren_skill = self.read_skills(image)
+
+        # Getting this wrong is the one misreading that can wreck a run: a
+        # research ship has no Enhance tab, and hunting for one on its sidebar
+        # navigates into the Shipyard and off the detail page entirely. The name
+        # alone is not enough - the PR Roon read as 'Roon', which used to squash
+        # to the same key as Roon u (the mu was stripped as non-alphanumeric),
+        # resolved to the u ship, which the data calls non-research, and the tab
+        # search walked into the Shipyard. Siren Killer settles it: every PR/DR
+        # ship carries one and nothing else does.
+        is_research = bool(dict_research or siren_skill)
         if not is_meta and not is_research:
             sidebar_top = crop(image, SIDEBAR_TOP_AREA)
             if TEMPLATE_TAB_RESEARCH.match(sidebar_top, similarity=TAB_SIM) \
                     or TEMPLATE_TAB_RESEARCH.match_luma(sidebar_top, similarity=TAB_SIM):
                 is_research = True
+        if not is_meta and not is_research and ambiguous_research and not skills:
+            # No skill slot parsed, so the Siren Killer test never ran, and this
+            # name could be either half of a research/u pair. Not worth a trip
+            # into the Shipyard to find out.
+            logger.info('{!r} could be a research ship and no skill was readable - '
+                        'treating it as one'.format(name))
+            is_research = True
 
         star_img = crop(image, STAR_AREA)
         gold = len(TEMPLATE_STAR_GOLD.match_multi(star_img, similarity=STAR_SIM, name='STAR_GOLD'))
@@ -1014,8 +1082,6 @@ class ShipCensus(Dock):
         total = lb_max if lb_max else gold + dark
 
         oath_badge = TEMPLATE_TIER_OATH.match(crop(image, TIER_AREA), similarity=TAB_SIM)
-
-        skills = self.read_skills(image)
 
         logger.info('Detail: name={!r}, Lv.{}, HP {}, stars {}/{}, meta={}, research={}, '
                     'oath_badge={}, skills={}'.format(
@@ -1122,23 +1188,30 @@ class ShipCensus(Dock):
         Fuzzy-match a cleaned OCR name against the canonical EN list.
 
         Returns:
-            (str, str, bool): (canonical or raw name, rarity or None,
-                research ship according to the name data)
+            (str, str, bool, bool): canonical or raw name, rarity or None,
+                research ship according to the name data, and whether the read
+                could equally be a u variant of a research ship (see
+                _NAME_AMBIGUOUS - the caller decides how careful to be).
         """
         if not cleaned:
-            return None, None, False
-        squash = re.sub(r'[^a-z0-9]', '', cleaned.lower())
+            return None, None, False, False
+        squash = _squash(cleaned)
         if not squash:
-            return cleaned, None, False
-        hit = _NAME_SQUASH.get(squash)
-        if hit is None:
+            return cleaned, None, False, False
+        names = _NAME_SQUASH.get(squash)
+        if names is None:
             close = difflib.get_close_matches(squash, _NAME_SQUASH.keys(), n=1, cutoff=0.8)
             if close:
-                hit = _NAME_SQUASH[close[0]]
-        if hit is None:
-            return cleaned, None, False
+                squash = close[0]
+                names = _NAME_SQUASH[squash]
+        if not names:
+            return cleaned, None, False, False
+        # Shortest first, so a read with no mu in it resolves to the base ship
+        hit = sorted(names, key=len)[0]
         info = SHIP_NAMES.get(hit) or {}
-        return hit, info.get('rarity'), bool(info.get('research'))
+        candidates = _NAME_AMBIGUOUS.get(squash, set())
+        ambiguous = any(bool((SHIP_NAMES.get(n) or {}).get('research')) for n in candidates)
+        return hit, info.get('rarity'), bool(info.get('research')), ambiguous
 
     def read_level(self, skip_first_screenshot=True):
         """Level from the detail header, waiting out info bars (ExpFeed idiom)."""
@@ -1172,8 +1245,13 @@ class ShipCensus(Dock):
         - Some skills cannot be leveled at all and sit at Lv.1 forever (All
           Out Assault barrages, the PR/DR Siren Killer); the name band
           identifies them and they record max=1. See FIXED_SKILL_PATTERNS.
+
+        Returns:
+            (list, bool): the skills, and whether a Siren Killer skill was seen
+                - which identifies a PR/DR research ship on its own.
         """
         skills = []
+        siren = False
         for i in range(3):
             text = str(SKILL_LEVEL_OCRS[i].ocr(image)).replace(' ', '')
             m = re.search(r'(\d+)$', text)
@@ -1181,8 +1259,12 @@ class ShipCensus(Dock):
                 level = int(m.group(1))
                 if 1 <= level <= 10:
                     skill_max = 10
-                    if level < 10 and self.skill_is_fixed(image, i):
-                        skill_max = 1
+                    if level < 10:
+                        kind = self.skill_is_fixed(image, i)
+                        if kind:
+                            skill_max = 1
+                        if kind == 'siren':
+                            siren = True
                     skills.append({'level': level, 'max': skill_max, 'locked': False})
                     continue
             slot_img = crop(image, SKILL_SLOT_AREAS[i])
@@ -1190,7 +1272,7 @@ class ShipCensus(Dock):
                 skills.append({'level': 0, 'max': 10, 'locked': True})
                 continue
             # "?" card or empty background: no skill here
-        return skills
+        return skills, siren
 
     def skill_is_fixed(self, image, i):
         """
@@ -1200,6 +1282,9 @@ class ShipCensus(Dock):
         as a scrolling marquee - a single frame can catch an unreadable
         window (missed live on U-81), so up to two fresh frames are retried
         when a device is attached.
+
+        Returns:
+            str: 'siren' (PR/DR research ship), 'aoa', or '' for a normal skill.
         """
         for attempt in range(3):
             for letter, thr in ((255, 255, 255), 128), ((70, 75, 85), 128):
@@ -1207,15 +1292,16 @@ class ShipCensus(Dock):
                           letter=letter, threshold=thr, name='OCR_SKILL_NAME')
                 ocr.SHOW_LOG = False
                 text = re.sub(r'[^a-z0-9]', '', str(ocr.ocr(image)).lower())
-                if match_fixed_skill(text):
-                    logger.info('Skill %s cannot be leveled (read %r)' % (i + 1, text))
-                    return True
+                kind = match_fixed_skill(text)
+                if kind:
+                    logger.info('Skill %s cannot be leveled (%s, read %r)' % (i + 1, kind, text))
+                    return kind
             if attempt >= 2 or not hasattr(self, 'device'):
                 break
             self.device.sleep((0.5, 0.7))
             self.device.screenshot()
             image = self.device.image
-        return False
+        return ''
 
     # ---------------- enhance tab ----------------
 
@@ -1341,6 +1427,17 @@ class ShipCensus(Dock):
                     return True
             elif self.is_in_enhance():
                 return True
+            # A click that navigated off the ship entirely - the Shipyard, the
+            # META lab - must stop the search dead. Live, a research ship
+            # misread as a normal one took a click into the Shipyard and the
+            # loop then spent 13 s polling a level that was not there, twice,
+            # before ui_ensure clicked itself into GameTooManyClickError and
+            # the game was restarted.
+            if not self.appear(SHIP_DETAIL_CHECK, offset=(20, 20)):
+                logger.warning('goto_sidebar_tab({}) left the ship detail page, backing '
+                               'out'.format(tab_name))
+                self.detail_exit_to_dock()
+                return False
             if timeout.reached():
                 logger.warning('goto_sidebar_tab({}) timeout'.format(tab_name))
                 return False
@@ -1354,12 +1451,33 @@ class ShipCensus(Dock):
                     if luma_sim > sim:
                         sim, btn = luma_sim, luma_btn
                 if sim >= threshold:
+                    # Below TAB_SIM the wanted tab has to out-score the Research
+                    # tab on the same frame. A relaxed match is looser than the
+                    # difference between two same-styled icons, and on a lab
+                    # sidebar the tab it lands on is the one out of the page.
+                    if threshold < TAB_SIM and not self.tab_beats_research(sim):
+                        logger.warning('Sidebar tab {} only matched at {:.3f} and the Research '
+                                       'tab scores higher - treating this as a lab sidebar'
+                                       .format(tab_name, sim))
+                        return False
                     if threshold < TAB_SIM:
                         logger.info('Sidebar tab {} matched at {:.3f}, threshold relaxed '
                                     'to {:.2f}'.format(tab_name, sim, threshold))
                     btn = btn.move((SIDEBAR_AREA[0], SIDEBAR_AREA[1]))
                     self.device.click(btn)
                     clicked.reset()
+
+    def tab_beats_research(self, sim):
+        """
+        Whether `sim` outscores the Research tab on the current frame - the
+        gate on any relaxed sidebar match. Research/Gear/Info tabs share their
+        styling with Enhance/LimitBreak, so a threshold loose enough to see
+        through dark art is also loose enough to confuse the two.
+        """
+        sidebar = crop(self.device.image, SIDEBAR_AREA)
+        rival = max(TEMPLATE_TAB_RESEARCH.match_result(sidebar)[0],
+                    TEMPLATE_TAB_RESEARCH.match_luma_result(sidebar)[0])
+        return sim > rival
 
     # ---------------- grid pass ----------------
 
@@ -1420,6 +1538,7 @@ class ShipCensus(Dock):
         """
         entries = []
         prev_flat = []
+        last_flat = []
         rewinds = 0
         stuck = 0
         blank = 0
@@ -1449,15 +1568,25 @@ class ShipCensus(Dock):
                 continue
             blank = 0
 
-            if prev_flat and [hp for hp, _ in flat] == [hp for hp, _ in prev_flat]:
+            # "The screen stopped changing" means the bottom of the dock - but
+            # only against the screen actually read last, not against the last
+            # one accepted. A rewind steps back a row and then forward again, so
+            # comparing with the last accepted screen made a rewind look like a
+            # dead list: two of those in a row ended the sweep in the middle of
+            # the dock, and everything below (a level-sorted dock's whole Lv.1
+            # tail) never got read - which is where 49 ships' affinity went.
+            if not rewinds and last_flat \
+                    and [hp for hp, _ in flat] == [hp for hp, _ in last_flat]:
                 stuck += 1
                 if stuck >= GRID_STUCK_LIMIT:
                     logger.info('Grid sweep done: {} cards over {} screens'.format(
                         len(entries), page + 1))
                     break
                 self.grid_drag_rows(GRID_DRAG_ROWS_MAX)
+                last_flat = flat
                 continue
             stuck = 0
+            last_flat = flat
 
             overlap = self.overlap_length(prev_flat, flat)
             if prev_flat and flat and not overlap:
@@ -1603,10 +1732,25 @@ class ShipCensus(Dock):
     def overlap_length(prev, flat):
         """
         How many cards at the head of `flat` repeat the tail of `prev`, matched
-        on HP alone. Longest match wins; 0 means the screens do not overlap.
+        on HP. Longest match wins; 0 means the screens do not overlap.
+
+        An unreadable HP is a wildcard, not a mismatch. Requiring every HP in
+        the overlap to agree meant one washed-out digit anywhere in it rejected
+        the whole overlap, and screens on this dock carry 4-6 unreadable cards
+        out of 21 as a matter of course: the sweep then rewound three times,
+        gave up, and appended a screen it had already recorded (621 cards read
+        for a dock of ~500, while 49 ships still ended up with no card at all).
+        A run of wildcards on its own proves nothing, so at least
+        GRID_OVERLAP_MIN_HITS of the overlap must be real matching HPs - unless
+        the overlap is shorter than that, in which case they all must be.
         """
         for k in range(min(len(prev), len(flat)), 0, -1):
-            if [hp for hp, _ in prev[-k:]] == [hp for hp, _ in flat[:k]]:
+            tail = [hp for hp, _ in prev[-k:]]
+            head = [hp for hp, _ in flat[:k]]
+            if any(a is not None and b is not None and a != b for a, b in zip(tail, head)):
+                continue
+            hits = sum(1 for a, b in zip(tail, head) if a is not None and a == b)
+            if hits >= min(GRID_OVERLAP_MIN_HITS, k):
                 return k
         return 0
 
@@ -1905,6 +2049,7 @@ class ShipCensus(Dock):
             self.device.sleep((0.8, 1.2))
             self.ensure_info_view()
             got = self.canonical_name(self._clean_name(OCR_NAME.ocr(self.device.image)))[0]
+
             if got == want:
                 return True
             logger.info('Search result is {!r}, looking further'.format(got))

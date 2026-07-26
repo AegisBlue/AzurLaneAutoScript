@@ -126,6 +126,19 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   `rows_read - 1` rows so screens always share a row, dedupe on that overlap
   (flat HP sequence — rows can be a card short mid-row), and end the sweep when
   the screen stops changing. ~550 Elite+ cards ≈ 75 screens ≈ 4 min.
+- **An unreadable HP is a wildcard in the page overlap, not a mismatch.**
+  Screens routinely carry 4-6 cards out of 21 whose value will not OCR; demanding
+  an exact HP sequence meant one of them rejected the whole overlap, so the sweep
+  rewound three times, gave up and appended a screen it already had.
+  `GRID_OVERLAP_MIN_HITS` real matches are still required so a run of wildcards
+  cannot invent an overlap.
+- **"The screen stopped changing" is measured against the screen read last, not
+  the last one accepted.** A rewind steps back a row and forward again, which
+  against the last *accepted* screen looks exactly like a dead list — two in a
+  row ended the grid sweep in the middle of the dock, and on a level-sorted dock
+  everything below is the Lv.1 tail. That is where 49 ships' affinity went: not
+  misread, never reached. The stuck test is also suppressed while a rewind is in
+  flight.
 - `set_top` before reading: the game **remembers dock scroll across visits**.
 - `device.click_record_clear()` after every drag and resume-skip swipe —
   12 consecutive same-button actions raise GameTooManyClickError.
@@ -213,6 +226,28 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   Both record `enhance_maxed: null` (dashboard shows n/a + META/PR badge).
   **Never blind-click sidebar slots** — on a PR ship that navigates into the
   Shipyard and off the detail page entirely.
+- **Classifying a research ship wrong is the one misreading that wrecks a run**,
+  because the enhance-tab search then goes hunting on a sidebar that has no
+  Enhance tab and clicks its way into the Shipyard: 13 s of polling a level that
+  is not there, twice over, then `ui_ensure` clicking itself into
+  GameTooManyClickError and a game restart. Three independent signals now feed
+  it, in order of trust:
+  1. the name dictionary (PR roster / ` META` suffix);
+  2. **a Siren Killer skill** — every PR/DR ship has one and nothing else does,
+     so reading it is a positive identification (`SIREN_SKILL_PATTERNS`);
+  3. the Research-tab template, still the last resort on bright/dark art.
+  If a name could be either half of a research/μ pair *and* not one skill slot
+  parsed, the ship is treated as research rather than risking the trip.
+- **`Roon` and `Roon μ` used to be the same name.** The squash key dropped μ as
+  non-alphanumeric, so the pair collided and one silently won every lookup — and
+  Roon is a PR research ship while Roon μ is not. `_squash` now folds μ to `u`
+  instead of dropping it, keys map to a *list* of canonical names (shortest
+  first, so a read that lost its μ lands on the base ship), and `_NAME_AMBIGUOUS`
+  records the pairs. Same collision existed for Gascogne/Gascogne μ; both were
+  recorded under the μ key with the PR ship's data.
+- `goto_sidebar_tab` stops dead the moment `SHIP_DETAIL_CHECK` stops appearing
+  and backs out to the dock. Whatever else is wrong, a tab search must not keep
+  clicking once it is off the ship page.
 - **Bulins** (`NO_ENHANCE_HINT`) are the third no-Enhance family: their sidebar
   is Gear + Info only, no Enhance and no LimitBreak. They carry `no_enhance` and
   `missing_fields()` stops reporting their null enhance state — live, 7
@@ -224,7 +259,12 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   outfit) and Albacore μ (starfield), which is how their enhance state stayed
   null. Only the *search* relaxes — arrival is still the opaque Fill button, so
   a loose match costs a click, not a wrong reading; and Live2D drift means a
-  later frame often matches where the first did not.
+  later frame often matches where the first did not. This fixed Otto von
+  Alvensleben (matched at 0.699 once the threshold reached 0.67). Below
+  `TAB_SIM` the match must also **out-score the Research tab on the same frame**
+  (`tab_beats_research`): a threshold loose enough to see through dark art is
+  looser than the difference between two same-styled tab icons, and on a lab
+  sidebar the tab it lands on is the one that leaves the page.
 - Enhance tab: entry click via template+luma search (tabs shift one slot down on
   retrofit ships); **arrival = the opaque Fill button template** (tab highlight
   sims overlap; color counting false-positives on blue art). Return-to-Info
@@ -297,13 +337,16 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   Of the 76 it *did* re-read, 27 kept null limit breaks (lost dark stars),
   7 were Bulins whose Enhance tab does not exist, and 1 (Albacore μ) lost its
   sidebar tab search to dark art.
-- Affinity gaps whose stored HP matches no grid card are a knock-on of the
-  above: the ship is never opened, so its misread HP is never corrected and the
-  join has nothing to hook onto. They should follow the ships being reachable
-  again; re-check after the next repair run.
-- The grid pass itself still over-counts (551 vs 538 for the same dock). Nothing
-  depends on the total any more, but `overlap_length` failing is also why some
-  cards never make it into the affinity index.
+- **Second repair run (2026-07-26 16:04): 117 of 122 re-read**, up from 76 of
+  186. What was left: affinity 49, enhance 2, limit break 1. The affinity 49 all
+  reported "no card with this HP in the grid pass" and were all Lv.1 — i.e. the
+  tail of the dock, which the grid sweep had stopped short of (see the
+  stuck/rewind fix above); their stored HP was correct all along. The 2 enhance
+  were Roon μ and Gascogne μ — really the PR Roon and Gascogne, misnamed by the
+  μ collision, which is also what walked the run into the Shipyard.
+- Records left over from the μ collision (`Roon μ#1`, `Gascogne μ#1` holding the
+  PR ships' data) heal themselves: the next sweep files those ships under their
+  own names and a completed sweep flags the leftovers `missing`.
 - Grid pass speed: screens that straddle a row boundary read 2 rows instead of
   3, so the sweep steps 1 row instead of 2. Nudging the dock into alignment once
   (the anchor y says by how much) would cut the grid pass roughly in half.
@@ -330,8 +373,12 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   boxes, dock re-entry (`dock_enter_at`), sweeps resume by tapping card N rewrite
 - `4e72e39ac` repair scan mode
 - `45da79db1` a dock drag that opened a ship no longer wrecks the grid sweep
-- _(this change)_ the four reasons repair mode left 110 of 186 targets
-  unvisited: phantom records at the end of the dock (`sweep_at_dock_end`,
+- `4c5962f0b` the five reasons repair mode left 110 of 186 targets unvisited:
+  phantom records at the end of the dock (`sweep_at_dock_end`,
   `prune_phantom_copies`), the un-cleared dock search field, the name-only match
   key, plus star rows that no longer need their dark stars and Bulins classified
   as having no Enhance tab
+- _(this change)_ the `Roon`/`Roon μ` name collision that classified a PR ship
+  as an ordinary one and sent the tab search into the Shipyard; Siren Killer as
+  a positive research signal; the tab search abandoning ship when it leaves the
+  detail page; and the grid sweep no longer stopping in the middle of the dock
