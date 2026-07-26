@@ -305,7 +305,8 @@ function judge(ship) {
     : [ship.level >= cap ? 'done' : 'pending', ship.level + '/' + cap];
   c.affinity = ship.affinity == null ? ['unknown', '—']
     : [ship.affinity >= 100 ? 'done' : 'pending', String(ship.affinity)];
-  c.enhance = (ship.is_meta || ship.is_research) ? ['na', 'n/a']
+  // Bulins (no_enhance) have no Enhance tab either - their sidebar is Gear+Info
+  c.enhance = (ship.is_meta || ship.is_research || ship.no_enhance) ? ['na', 'n/a']
     : ship.enhance_maxed == null ? ['unknown', '—']
     : [ship.enhance_maxed ? 'done' : 'pending', ship.enhance_maxed ? 'MAX' : 'open'];
   c.lb = (ship.lb_current == null || ship.lb_max == null) ? ['unknown', '—']

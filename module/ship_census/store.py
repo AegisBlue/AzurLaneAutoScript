@@ -12,6 +12,7 @@ Schema v1 record fields (None / [] = not collected yet):
     rarity              'elite' / 'super_rare' / 'ultra_rare' / 'rare' / 'normal'
     is_meta             bool - META ships have no Enhance/LimitBreak, they use the Lab
     is_research         bool - PR/DR research ships enhance via the Shipyard instead
+    no_enhance          bool - limit-break fodder (Bulins): no Enhance tab at all
     level               int
     affinity            float, 0-200 (100 = Love, >100 only after oath)
     oathed              bool
@@ -33,7 +34,10 @@ SCHEMA_VERSION = 1
 # of sitting on a stale (possibly wrong) value until StaleDays expires.
 #   1 -> 2: enhance rows judged by green dominance + bar fill, so ships whose
 #           art washed out the old brightness test stop reading "open"
-READER_VERSION = 2
+#   2 -> 3: the star row no longer needs its dark stars to be seen (they sink
+#           into ship art), so limit break reads on ships that came back null -
+#           and the 5-slot rows recorded for 6-slot SR ships - get corrected
+READER_VERSION = 3
 
 SHIP_DEFAULTS = {
     'name': None,
@@ -41,6 +45,7 @@ SHIP_DEFAULTS = {
     'rarity': None,
     'is_meta': False,
     'is_research': False,
+    'no_enhance': False,
     'level': None,
     'hp': None,
     'affinity': None,
@@ -67,9 +72,11 @@ def missing_fields(ship):
     Which pieces of a record never came back.
 
     Lab ships (META / PR research) have no Enhance tab at all, so a null
-    enhance_maxed is right for them and is not reported. `rarity` is left out
-    too: it comes from the name dictionary rather than the screen, so a gap
-    there means the name did not canonicalise and re-reading will not help.
+    enhance_maxed is right for them and is not reported; nor do Bulins, which
+    carry no_enhance (live, 7 Prototype Bulin MKII records were re-read over and
+    over for a tab that does not exist). `rarity` is left out too: it comes from
+    the name dictionary rather than the screen, so a gap there means the name did
+    not canonicalise and re-reading will not help.
 
     Args:
         ship (dict): One record.
@@ -81,7 +88,8 @@ def missing_fields(ship):
                if ship.get(field) is None]
     if not ship.get('skills'):
         missing.append('skills')
-    if ship.get('enhance_maxed') is None and not (ship.get('is_meta') or ship.get('is_research')):
+    lab = ship.get('is_meta') or ship.get('is_research') or ship.get('no_enhance')
+    if ship.get('enhance_maxed') is None and not lab:
         missing.append('enhance_maxed')
     return missing
 
@@ -246,6 +254,61 @@ class CensusStore:
             if missing:
                 out[key] = missing
         return out
+
+    def prune_phantom_copies(self, grid_hp_counts):
+        """
+        Drop duplicate records the dock has no card for.
+
+        A sweep that could not tell the end of the dock from a swallowed swipe
+        re-walked its last cards and filed each of them again under the next
+        free copy number - live, 46 such records, every one permanently
+        incomplete and every one a target the repair scan can never satisfy
+        because there is no second card to open.
+
+        The grid pass is the arbiter: it over-counts rather than under-counts
+        (it re-reads a row when two screens fail to share one), so "more records
+        with this HP than the dock has cards with this HP" is a conservative
+        test - it cannot accuse a real duplicate. Only incomplete records are
+        ever dropped, newest first, and never the last record of a ship name.
+
+        Args:
+            grid_hp_counts (dict): HP -> number of dock cards, from a grid pass.
+
+        Returns:
+            list[str]: Keys removed.
+        """
+        if not grid_hp_counts:
+            return []
+        names = {}
+        by_hp = {}
+        for key, ship in self.ships.items():
+            names[ship.get('name')] = names.get(ship.get('name'), 0) + 1
+            hp = ship.get('hp')
+            if hp:
+                by_hp.setdefault(hp, []).append(key)
+
+        removed = []
+        for hp, keys in by_hp.items():
+            allowed = grid_hp_counts.get(hp, 0)
+            if not allowed or len(keys) <= allowed:
+                continue
+            spare = [k for k in keys if missing_fields(self.ships[k])]
+            # Newest first: the earlier copy of a pair is the one the sweep met
+            # on its way down the dock, the later one the re-read
+            spare.sort(key=lambda k: (self.ships[k].get('first_seen') or '',
+                                      self.ships[k].get('copy') or 1), reverse=True)
+            surplus = len(keys) - allowed
+            for key in spare:
+                if surplus <= 0:
+                    break
+                name = self.ships[key].get('name')
+                if names.get(name, 0) <= 1:
+                    continue
+                names[name] -= 1
+                del self.ships[key]
+                removed.append(key)
+                surplus -= 1
+        return removed
 
     def needs_deep_scan(self, key, level, stale_days, full=False):
         """

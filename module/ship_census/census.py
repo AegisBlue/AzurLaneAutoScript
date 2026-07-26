@@ -226,6 +226,9 @@ REPAIR_DRAG_COST = 1.2
 REPAIR_JUMP_OVERHEAD = 8.0
 # How far to swipe ahead when a jump lands next to the target instead of on it
 REPAIR_LOCAL_SEARCH = 3
+# Backspaces sent to empty the dock's search field before typing a new query;
+# the longest owned ship name is comfortably under this. See dock_enter_by_name.
+DOCK_SEARCH_CLEAR_KEYS = 40
 
 
 def _load_ship_names():
@@ -247,6 +250,21 @@ def _load_ship_names():
 
 SHIP_NAMES = _load_ship_names()
 _NAME_SQUASH = {re.sub(r'[^a-z0-9]', '', n.lower()): n for n in SHIP_NAMES}
+
+
+def _names_alike(a, b, cutoff=0.8):
+    """
+    Whether two OCR'd ship names are plausibly the same ship. Both sides may be
+    garbled ('Prinz Morit' / 'Prinz Moritz', 'S houk' / 'Shoukaku'), so this
+    compares squashed forms rather than requiring either to be canonical.
+    """
+    if not a or not b:
+        return False
+    a = re.sub(r'[^a-z0-9]', '', str(a).lower())
+    b = re.sub(r'[^a-z0-9]', '', str(b).lower())
+    if not a or not b:
+        return False
+    return difflib.SequenceMatcher(None, a, b).ratio() >= cutoff
 SWEEP_SAFETY_LIMIT = 1500
 GRID_PAGE_LIMIT = 200
 # Grid sweep stepping: the dock is dragged by whole card rows (see
@@ -275,18 +293,46 @@ SWIPE_BOXES = [
 # Star totals are rarity base + 3; Elite and above only produce 5 or 6 slot
 # rows, so anything else is a misread (dark stars can vanish into dark art)
 STAR_TOTAL_VALID = (5, 6)
+# How long the row is for a ship of each rarity, measured over 400+ records:
+# every Elite reads 2 gold at 0 limit breaks and 5 when full, every SR reads 3
+# and 6. Used as a floor, never as an override - see star_row_to_limit_break.
+STAR_TOTAL_BY_RARITY = {
+    'elite': 5,
+    'super_rare': 6,
+    'ultra_rare': 6,
+}
 STAR_SIM = 0.75
 TAB_SIM = 0.70
+# Floor the sidebar tab search relaxes to when template and luma matching both
+# stay under TAB_SIM (dark art behind the translucent panel - live, Otto von
+# Alvensleben's black outfit and Albacore u's starfield). Only the *search*
+# relaxes: arrival is still judged by the opaque Fill button / a level parse,
+# so the worst a loose match can do is waste a click.
+TAB_SIM_FLOOR = 0.58
 # Calibrated on captures: padlock true>=0.99 / false<=0.49
 SKILL_LOCK_SIM = 0.75
+# Limit-break fodder. A Bulin's sidebar is Gear + Info only - it has neither an
+# Enhance nor a LimitBreak tab - so a null enhance state is the right answer for
+# one, not a gap. Live, 7 Prototype Bulin MKII records sat in the repair list
+# for good, each costing a tab search that could never succeed.
+NO_ENHANCE_HINT = 'bulin'
+# Stall re-entries allowed per sweep before it is called finished. The primary
+# end-of-dock test is sweep_at_dock_end; this is only a backstop.
+SWEEP_REENTRY_LIMIT = 6
 
 
 class ShipCensus(Dock):
+    # Ship name -> longest star row seen for it, rebuilt from the store on every
+    # run. Class-level so the offline validators, which build readers with
+    # ShipCensus.__new__ and no store, still find it.
+    star_totals = {}
+
     def run(self):
         mode = self.config.ShipCensus_ScanMode
         store = CensusStore().load()
         logger.hr('Ship census', level=1)
         logger.info('Mode: {}, ships on record: {}'.format(mode, len(store.ships)))
+        self.star_totals = self.learn_star_totals(store)
 
         if mode == 'repair':
             self.census_repair(store)
@@ -317,16 +363,10 @@ class ShipCensus(Dock):
             in: Any
             out: page_dock, filters reset
         """
-        targets = store.incomplete_ships()
         logger.hr('Census repair', level=2)
-        if not targets:
+        if not store.incomplete_ships():
             logger.info('No record has gaps, nothing to repair')
             return
-        counts = {}
-        for fields in targets.values():
-            for field in fields:
-                counts[field] = counts.get(field, 0) + 1
-        logger.info('{} records with gaps: {}'.format(len(targets), counts))
 
         self.ui_ensure(page_dock)
         self.dock_search_close()
@@ -334,6 +374,32 @@ class ShipCensus(Dock):
         self.dock_sort_method_dsc_set(True, wait_loading=False)
         self.dock_filter_set(rarity=RARITY_SCOPE[self.config.ShipCensus_RarityScope])
         grid = self.grid_pass()
+
+        # Records the dock has no card for cannot be repaired by any amount of
+        # walking, and they used to make up a quarter of the target list. Drop
+        # them against this grid pass before deciding where to go.
+        hp_counts = {}
+        for card_hp, _ in grid:
+            if card_hp:
+                hp_counts[card_hp] = hp_counts.get(card_hp, 0) + 1
+        phantoms = store.prune_phantom_copies(hp_counts)
+        if phantoms:
+            store.save()
+            logger.warning('Dropped {} duplicate records with no dock card behind them: '
+                           '{}{}'.format(len(phantoms), ', '.join(phantoms[:10]),
+                                         ' ...' if len(phantoms) > 10 else ''))
+
+        targets = store.incomplete_ships()
+        if not targets:
+            logger.info('No record has gaps, nothing to repair')
+            self.dock_filter_set(wait_loading=False)
+            return
+        counts = {}
+        for fields in targets.values():
+            for field in fields:
+                counts[field] = counts.get(field, 0) + 1
+        logger.info('{} records with gaps: {}'.format(len(targets), counts))
+
         affinity_index = self.grid_affinity_index(grid)
         # How many affinity values this grid pass has per HP, before the walk
         # starts consuming them - the difference between "the card was never
@@ -354,17 +420,18 @@ class ShipCensus(Dock):
         unreachable = [key for key in targets
                        if not store.ships[key].get('hp')
                        or store.ships[key]['hp'] not in grid_hps]
-        if not positions:
-            logger.warning('No target ship could be found in the dock by HP')
-            self.dock_filter_set(wait_loading=False)
-            return
-        logger.info('{} targets sit between dock cards {} and {}; {} are not findable by HP '
-                    '(their stored HP matches no card)'.format(
-                        len(targets) - len(unreachable), positions[0], positions[-1],
-                        len(unreachable)))
+        if positions:
+            logger.info('{} targets sit between dock cards {} and {}; {} are not findable by '
+                        'HP (their stored HP matches no card)'.format(
+                            len(targets) - len(unreachable), positions[0], positions[-1],
+                            len(unreachable)))
+        else:
+            # Not a reason to stop: the name lookup below reaches these anyway
+            logger.warning('No target ship could be found in the dock by HP, going '
+                           'straight to name lookups')
 
         report = dict(generated=None, targets=len(targets), grid_cards=len(grid),
-                      unreachable=unreachable, ships=[])
+                      pruned=phantoms, unreachable=unreachable, ships=[])
         done = set()
         visited = 0
         index = -1
@@ -427,8 +494,17 @@ class ShipCensus(Dock):
             if len(done) >= len(targets) - len(unreachable):
                 break
 
-        # Targets whose stored HP matches no card are reachable only by name
-        for key in unreachable:
+        # Everything the walk did not get to, by name. That is the only way in
+        # for a record whose stored HP matches no card (a misread HP leaves the
+        # name as the only handle), and it is also the second chance for one the
+        # walk passed without recognising - a jump that landed too far from its
+        # target, or a card the swipe skipped over.
+        pending = [key for key in targets if key not in done]
+        if pending:
+            logger.info('{} targets left after the dock walk ({} of them never findable by '
+                        'HP), looking them up by name'.format(
+                            len(pending), len(set(pending) & set(unreachable))))
+        for key in pending:
             if visited >= SWEEP_SAFETY_LIMIT:
                 logger.warning('Repair walk safety limit reached')
                 break
@@ -443,7 +519,7 @@ class ShipCensus(Dock):
             report['ships'].append(self.repair_ship(store, key, targets[key], detail,
                                                     affinity_index, grid, supply))
             done.add(key)
-        if unreachable:
+        if pending:
             self.dock_search_close()
 
         store.save()
@@ -457,22 +533,47 @@ class ShipCensus(Dock):
         Which target record the ship now on screen belongs to - matched on name
         and HP, never on position, since the walk passes non-targets too.
 
+        A record's stored name comes from the same OCR pass that failed on it in
+        the first place, so a strict name comparison locks out exactly the
+        records the repair exists for: the walk opened Prinz Moritz, read
+        'Prinz Morit' off the chip, found no target called that and walked on -
+        21 ships were passed and left unrepaired that way. Hence the fallbacks,
+        each of which only fires when it identifies a single pending record.
+
         Returns:
             str: Record key, or None if this ship is not a pending target.
         """
-        if not detail['name']:
-            return None
         pending = [key for key in targets if key not in done]
-        exact = [key for key in pending
-                 if store.ships[key].get('name') == detail['name']
-                 and store.ships[key].get('hp') == detail['hp']]
-        if exact:
-            return exact[0]
-        by_name = [key for key in pending if store.ships[key].get('name') == detail['name']]
-        if len(by_name) == 1:
-            logger.info('Matched {} by name (stored HP {}, read {})'.format(
-                by_name[0], store.ships[by_name[0]].get('hp'), detail['hp']))
-            return by_name[0]
+        name, hp = detail['name'], detail['hp']
+
+        if name:
+            exact = [key for key in pending
+                     if store.ships[key].get('name') == name
+                     and store.ships[key].get('hp') == hp]
+            if exact:
+                return exact[0]
+            by_name = [key for key in pending if store.ships[key].get('name') == name]
+            if len(by_name) == 1:
+                logger.info('Matched {} by name (stored HP {}, read {})'.format(
+                    by_name[0], store.ships[by_name[0]].get('hp'), hp))
+                return by_name[0]
+
+        # HP off the detail page is a plain digit read on opaque chrome, so it
+        # is the sounder handle of the two whenever it singles a record out
+        if hp:
+            by_hp = [key for key in pending if store.ships[key].get('hp') == hp]
+            if len(by_hp) == 1:
+                logger.info('Matched {} by HP {} (stored name {!r}, read {!r})'.format(
+                    by_hp[0], hp, store.ships[by_hp[0]].get('name'), name))
+                return by_hp[0]
+
+        if name:
+            alike = [key for key in pending
+                     if _names_alike(store.ships[key].get('name'), name)]
+            if len(alike) == 1:
+                logger.info('Matched {} on a near-miss name (stored {!r}, read {!r})'.format(
+                    alike[0], store.ships[alike[0]].get('name'), name))
+                return alike[0]
         return None
 
     def repair_ship(self, store, key, missing_before, detail, affinity_index, grid, supply):
@@ -489,7 +590,7 @@ class ShipCensus(Dock):
         """
         logger.hr('Repairing {} (was missing {})'.format(key, ', '.join(missing_before)), level=2)
         fields = self.ship_fields(detail, key, affinity_index)
-        if detail['is_meta'] or detail['is_research']:
+        if detail['is_meta'] or detail['is_research'] or detail['no_enhance']:
             fields['enhance_maxed'] = None
         else:
             fields['enhance_maxed'] = self.read_enhance_tab()
@@ -635,7 +736,10 @@ class ShipCensus(Dock):
 
         visited = 0
         complete = False
+        on_last_card = False
         index = skip + npc_offset
+        reentries = 0
+        stalled_at = set()
         while 1:
             visited += 1
             last_hp = self.process_ship(store, affinity_index, stale_days=stale_days,
@@ -666,9 +770,24 @@ class ShipCensus(Dock):
             # a sweep died 161 ships in with 71 cards still to go, and the same
             # ship swiped fine minutes later). Going back to the dock and
             # tapping the next card is not subject to any of that.
-            if not advanced and index < cards:
+            #
+            # But `cards` is not an authority on how many ships exist. The grid
+            # pass re-reads a row whenever two screens fail to share one: 551
+            # cards on one run and 538 an hour later, for a dock of ~499. At the
+            # real end of the dock the swipe stops working and `index < cards`
+            # is still true, so the sweep re-entered and re-walked the last ~20
+            # cards four times over, recording a phantom "#2/#3/#4" copy of each
+            # - 46 records that no dock card corresponds to, permanently
+            # incomplete and impossible for the repair scan to ever finish.
+            # Hence the two grid-independent stop signs below.
+            if not advanced and index < cards \
+                    and not self.sweep_at_dock_end(last_hp, grid, stalled_at) \
+                    and reentries < SWEEP_REENTRY_LIMIT:
+                reentries += 1
+                if last_hp:
+                    stalled_at.add(last_hp)
                 logger.info('Swipe sweep stalled at card {}, re-entering from the '
-                            'dock'.format(index))
+                            'dock ({}/{})'.format(index, reentries, SWEEP_REENTRY_LIMIT))
                 advanced = self.dock_enter_at(index, grid, after_hp=last_hp)
                 if advanced:
                     index = self.resync_index(index, grid)
@@ -681,6 +800,7 @@ class ShipCensus(Dock):
             if not advanced:
                 logger.info('Census sweep reached the end of the dock')
                 complete = True
+                on_last_card = bool(last_hp) and bool(grid) and grid[-1][0] == last_hp
                 break
 
         # "Complete" must mean the whole dock was walked, because sweep_end
@@ -689,16 +809,60 @@ class ShipCensus(Dock):
         # end-of-dock, or a grid pass that itself truncated - would otherwise
         # brand every ship it never reached as retired (live: a run that
         # visited 49 of ~190 ships flagged 96 records).
-        covered = complete and bool(cards) and index >= cards
+        #
+        # Finishing on the grid's last card counts as coverage even when the
+        # index falls short of `cards`: the shortfall is the grid double-reading
+        # rows, not the walk missing ships.
+        covered = complete and bool(cards) and (index >= cards or on_last_card)
         if complete and not covered:
             logger.warning('Grid pass saw {} cards but the detail pass ended at index {} - '
                            'sweep recorded as incomplete, missing flags untouched'.format(
                                cards, index))
+        elif complete and on_last_card and index < cards:
+            logger.info('Detail pass ended on the last dock card at index {} while the grid '
+                        'counted {} cards - the grid re-read {} rows'.format(
+                            index, cards, cards - index))
         store.sweep_end(complete=covered)
         store.save()
         self.detail_exit_to_dock()
         self.dock_filter_set(wait_loading=False)
         logger.info('Census sweep processed {} ships this run'.format(visited))
+
+    @staticmethod
+    def sweep_at_dock_end(last_hp, grid, stalled_at):
+        """
+        Whether a blocked swipe means the dock is finished rather than that
+        something swallowed the stroke - decided without the grid's card count,
+        which over-reports (see census_sweep).
+
+        Two signals, either one is enough:
+
+        - The grid's *last* entry is the last dock card whatever its count is
+          off by, so a stall on that ship's HP is the end of the list.
+        - The same ship has already stalled the sweep once. Every re-entry
+          walks forward and ends up blocked on the same last card, so a repeat
+          means the walk is going round the tail rather than making progress
+          (live: four rounds, all of them stalling on Erebus META at HP 669).
+
+        Args:
+            last_hp (int): HP of the ship the sweep just read, None if unread.
+            grid (list[(int, int)]): Grid pass entries in dock order.
+            stalled_at (set): HPs that have already stalled this sweep.
+
+        Returns:
+            bool:
+        """
+        if not last_hp:
+            return False
+        if grid and grid[-1][0] == last_hp:
+            logger.info('Blocked swipe on HP {}, the last card of the dock - '
+                        'sweep is at the end'.format(last_hp))
+            return True
+        if last_hp in stalled_at:
+            logger.info('Blocked swipe on HP {} again after a re-entry - the walk is '
+                        'looping the end of the dock, stopping'.format(last_hp))
+            return True
+        return False
 
     @staticmethod
     def grid_affinity_index(grid):
@@ -751,6 +915,7 @@ class ShipCensus(Dock):
             hp=detail['hp'],
             is_meta=detail['is_meta'],
             is_research=detail['is_research'],
+            no_enhance=detail['no_enhance'],
             lb_current=detail['lb_current'],
             lb_max=detail['lb_max'],
             skills=detail['skills'],
@@ -799,7 +964,7 @@ class ShipCensus(Dock):
         # Enhance state needs a tab visit; once maxed it stays maxed. Lab
         # ships (META / PR research) have no Enhance tab at all - their
         # upgrade systems live in the META Lab / Shipyard.
-        if detail['is_meta'] or detail['is_research']:
+        if detail['is_meta'] or detail['is_research'] or detail['no_enhance']:
             fields['enhance_maxed'] = None
         else:
             prior = store.ships.get(key)
@@ -834,6 +999,7 @@ class ShipCensus(Dock):
         # (live: Plymouth's wedding wings). The template is the fallback for
         # ships the name data does not know yet.
         is_meta = bool(name and name.endswith('META'))
+        no_enhance = bool(name and NO_ENHANCE_HINT in name.lower())
         is_research = dict_research
         if not is_meta and not is_research:
             sidebar_top = crop(image, SIDEBAR_TOP_AREA)
@@ -844,12 +1010,8 @@ class ShipCensus(Dock):
         star_img = crop(image, STAR_AREA)
         gold = len(TEMPLATE_STAR_GOLD.match_multi(star_img, similarity=STAR_SIM, name='STAR_GOLD'))
         dark = len(TEMPLATE_STAR_EMPTY.match_multi(star_img, similarity=STAR_SIM, name='STAR_EMPTY'))
-        total = gold + dark
-        if gold >= 1 and total in STAR_TOTAL_VALID:
-            lb_current, lb_max = gold, total
-        else:
-            logger.info('Star row implausible (gold={}, dark={}), limit break unknown'.format(gold, dark))
-            lb_current = lb_max = None
+        lb_current, lb_max = self.star_row_to_limit_break(gold, dark, name, rarity)
+        total = lb_max if lb_max else gold + dark
 
         oath_badge = TEMPLATE_TIER_OATH.match(crop(image, TIER_AREA), similarity=TAB_SIM)
 
@@ -860,8 +1022,76 @@ class ShipCensus(Dock):
                         name, level, hp, gold, total, is_meta, is_research, oath_badge,
                         ['L' if s['locked'] else s['level'] for s in skills]))
         return dict(name=name, rarity=rarity, level=level, hp=hp, is_meta=is_meta,
-                    is_research=is_research, lb_current=lb_current, lb_max=lb_max,
+                    is_research=is_research, no_enhance=no_enhance,
+                    lb_current=lb_current, lb_max=lb_max,
                     skills=skills, oath_badge=oath_badge)
+
+    def star_row_to_limit_break(self, gold, dark, name, rarity):
+        """
+        Turn the star row into (current, max) limit break - META activation
+        stars for METAs, which display the same way.
+
+        Gold stars sit on bright chrome and count reliably. Dark stars are
+        hollow outlines with nothing behind them, so ship art swallows them:
+        Gromky's third dark star disappears into her white hat, Hunter META's
+        three vanish into black rubble, and all 53 un-limit-broken SR ships in
+        the store read a 5-slot row where the game draws 6. A dark star is only
+        ever *lost*, never invented, so the row's true length is the largest of
+        what this frame shows, what this ship read on an earlier pass, and what
+        its rarity implies - and gold is taken as read.
+
+        Args:
+            gold, dark (int): Stars matched on this frame.
+            name (str): Canonical ship name, for the learned floor.
+            rarity (str): From the name dictionary, or None.
+
+        Returns:
+            (int, int): current, max - or (None, None) if still implausible.
+        """
+        total = gold + dark
+        floor = max(self.star_totals.get(name, 0), self.star_total_floor(name, rarity))
+        if floor > total:
+            logger.info('Star row read {} slots, {} expects {} - taking {}'.format(
+                total, name, floor, floor))
+            total = floor
+        if gold >= 1 and gold <= total and total in STAR_TOTAL_VALID:
+            return gold, total
+        logger.info('Star row implausible (gold={}, dark={}, expected total {}), '
+                    'limit break unknown'.format(gold, dark, floor or '?'))
+        return None, None
+
+    @staticmethod
+    def star_total_floor(name, rarity):
+        """
+        Shortest star row this ship can possibly have, 0 when nothing is known.
+
+        Rarity carries it (Elite 5, SR/UR 6), with two exceptions:
+
+        - A Bulin's row is 5 gold stars and no dark ones at all - it has no
+          LimitBreak tab, so there is nothing left for it to fill - even though
+          the name data calls Prototype Bulin MKII super rare.
+        - A META's row follows its own progression, not its base hull's, so a
+          META of a Normal-rarity ship (Koenigsberg META) still shows 5 slots.
+        """
+        if name and NO_ENHANCE_HINT in name.lower():
+            return 0
+        floor = STAR_TOTAL_BY_RARITY.get(rarity, 0)
+        if name and name.endswith('META'):
+            floor = max(floor, 5)
+        return floor
+
+    @staticmethod
+    def learn_star_totals(store):
+        """
+        Longest plausible star row recorded per ship name, the floor
+        star_row_to_limit_break falls back on when a frame loses dark stars.
+        """
+        out = {}
+        for ship in store.ships.values():
+            name, total = ship.get('name'), ship.get('lb_max')
+            if name and total in STAR_TOTAL_VALID:
+                out[name] = max(out.get(name, 0), total)
+        return out
 
     @staticmethod
     def _clean_name(name):
@@ -1091,9 +1321,19 @@ class ShipCensus(Dock):
         blind clicks on a research ship navigated into the Shipyard and off
         the detail page entirely). Arrival is judged only by opaque elements
         of the destination view.
+
+        Dark art can hold both matches under TAB_SIM for the whole timeout -
+        that is how Otto von Alvensleben (black outfit) and Albacore u
+        (starfield behind the panel) ended up with a null enhance state. The
+        threshold is therefore walked down towards TAB_SIM_FLOOR as attempts go
+        by: that still aims at the best-matching *tab* rather than at a blind
+        slot, and the arrival check is independent, so the worst a loose match
+        can do is cost a click. Live2D art drifts too, and a later frame often
+        matches where the first did not - hence the longer timeout.
         """
-        timeout = Timer(9, count=8).start()
+        timeout = Timer(14, count=12).start()
         clicked = Timer(1.5)
+        attempt = 0
         while 1:
             self.device.screenshot()
             if verify_info:
@@ -1105,10 +1345,18 @@ class ShipCensus(Dock):
                 logger.warning('goto_sidebar_tab({}) timeout'.format(tab_name))
                 return False
             if clicked.reached():
+                threshold = max(TAB_SIM - 0.03 * attempt, TAB_SIM_FLOOR)
+                attempt += 1
                 sim, btn = template.match_result(crop(self.device.image, SIDEBAR_AREA))
-                if sim < TAB_SIM:
-                    sim, btn = template.match_luma_result(crop(self.device.image, SIDEBAR_AREA))
-                if sim >= TAB_SIM:
+                if sim < threshold:
+                    luma_sim, luma_btn = template.match_luma_result(
+                        crop(self.device.image, SIDEBAR_AREA))
+                    if luma_sim > sim:
+                        sim, btn = luma_sim, luma_btn
+                if sim >= threshold:
+                    if threshold < TAB_SIM:
+                        logger.info('Sidebar tab {} matched at {:.3f}, threshold relaxed '
+                                    'to {:.2f}'.format(tab_name, sim, threshold))
                     btn = btn.move((SIDEBAR_AREA[0], SIDEBAR_AREA[1]))
                     self.device.click(btn)
                     clicked.reset()
@@ -1621,6 +1869,16 @@ class ShipCensus(Dock):
         self.device.sleep((1.2, 1.5))
         self.device.click(DOCK_SEARCH_FIELD)
         self.device.sleep((1.2, 1.5))
+        # The game keeps the previous query in the box, and closing the box does
+        # not clear it. While every lookup succeeded that went unnoticed: the
+        # caller left through the ship's page, so the next ui_ensure(page_dock)
+        # came via page_main and reloaded the dock, wiping the field as a side
+        # effect. The first lookup that failed ended *on* the dock instead, and
+        # its text stayed - every one of the 53 searches after it typed onto the
+        # end of "S ur" and matched nothing, Tirpitz and Kiev included. So empty
+        # the field explicitly: caret to the end, then backspaces.
+        self.device.adb_shell(['input', 'keyevent', '123'] + ['67'] * DOCK_SEARCH_CLEAR_KEYS)
+        self.device.sleep((0.5, 0.8))
         self.device.adb_shell(['input', 'text', query.replace(' ', '%s')])
         self.device.sleep((1.0, 1.4))
         self.device.adb_shell(['input', 'keyevent', '66'])
@@ -1653,6 +1911,7 @@ class ShipCensus(Dock):
             if not self.ship_view_next_safe():
                 break
         logger.info('{!r} was not among the search results'.format(want))
+        self.dock_search_close()
         return False
 
     def dock_search_is_open(self):

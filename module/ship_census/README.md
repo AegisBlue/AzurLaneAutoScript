@@ -39,17 +39,34 @@ happened to each one, instead of re-walking 550 ships to find out.
 - Targets come from `store.incomplete_ships()` (`missing_fields()` in store.py:
   level / hp / affinity / limit break / skills, plus enhance for non-lab ships;
   `rarity` is excluded — it comes from the name dictionary, not the screen).
+- The run starts by pruning **phantom records** against its grid pass
+  (`store.prune_phantom_copies`) — see the sweep section below for where they
+  come from. They are targets no walk could ever satisfy.
 - Targets are scattered over the whole dock (live: cards 22-643 of 644), so the
   walk swipes across short gaps and jumps through the dock (`dock_enter_at`) for
   long ones, comparing costs (~2.5 s per card swiped vs ~1.2 s per row dragged).
   Ships are matched to records by name+HP, never by position; a jump that lands
   next to its target (grid positions drift from dock positions) swipes a few
   cards ahead before giving up on it.
-- Records whose stored HP matches no card at all (65 of 186 live — a misread HP)
-  are reached by **name** instead: `dock_enter_by_name` types into the dock's
-  search box and walks the result set until the name matches. Verified on
-  4 of 4, including `Illustrious μ` (typed as "Illustrious", μ stripped) and the
+- Ships are matched to records by name+HP first, then by **HP alone when it
+  singles a record out**, then by a fuzzy name. A record's stored name came from
+  the same OCR that failed on it, so matching strictly on it locks out exactly
+  the records the repair exists for (live: the walk opened Prinz Moritz, read
+  'Prinz Morit' off the chip and walked past — 21 ships lost that way).
+- Whatever the walk did not reach is then looked up by **name**:
+  `dock_enter_by_name` types into the dock's search box and walks the result set
+  until the name matches. This is the only way in for a record whose stored HP
+  matches no card, and the second chance for one the walk passed over. Verified
+  including `Illustrious μ` (typed as "Illustrious", μ stripped) and the
   two-word `Hammann II` (spaces sent as `%s` to `input text`).
+- **The search field must be emptied before typing** (caret-to-end + 40
+  backspaces). The game keeps the previous query and closing the box does not
+  clear it. While every lookup succeeded this went unnoticed — the caller left
+  through the ship's page, so the next `ui_ensure(page_dock)` came via
+  page_main, reloading the dock and wiping the field as a side effect. Live, the
+  first lookup that *failed* ended on the dock instead and left "S ur" behind:
+  all 53 searches after it typed onto the end of it and matched nothing,
+  Tirpitz and Kiev included.
 - Output: `config/ship_census_repair.json` — per ship, what was missing before
   and after, plus **why** it is still missing, and one frame per still-incomplete
   ship under `screenshots/ship_census_repair/`.
@@ -135,6 +152,18 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   go, and the same ship swiped fine minutes later. The same path resumes an
   interrupted sweep (tapping card N beats swiping past N ships: 15 min on a
   550-ship dock).
+- **…but the grid's card count cannot decide when it *is* the end.** The grid
+  over-counts: it re-reads a row whenever two screens fail to share one, and
+  reported 551 cards on one run and 538 an hour later for a dock of ~499. At
+  the real end of the dock the swipe stops working while `index < cards` is
+  still true, so the sweep re-entered and re-walked the last ~20 cards four
+  times over, filing each of them again under the next free copy number — **46
+  phantom `Name#2/#3/#4` records**, all permanently incomplete, all impossible
+  for the repair scan to satisfy (no second card to open), and a quarter of its
+  target list. `sweep_at_dock_end` decides it without the count: the grid's
+  *last* entry is the last dock card whatever the total is off by, and a second
+  stall on the same ship means the walk is going round the tail. Finishing on
+  that last card now counts as full coverage even when `index < cards`.
 - Tapping a specific card: scroll with the Stats overlay on so cards can be
   identified by HP, aim a row short (the target lands mid-screen, and a card at
   the screen edge is half cut and unfindable), then anchor on the **HP of the
@@ -145,8 +174,20 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   re-derives the dock index from the HP that actually opened). Grid-pass
   positions drift from true dock positions, so they are a hint, never the key.
 - Star row (240,50)-(430,95): gold templates = current LB, dark = remaining;
-  total clamps to {5,6} (Elite max 5, SR/UR/META 6; dark stars vanish on dark art
-  → implausible totals record null). Works for META activation stars too.
+  total clamps to {5,6}. Works for META activation stars too.
+- **Never trust the dark-star count for the row length.** Dark stars are hollow
+  outlines with nothing behind them, so ship art swallows them: Gromky's third
+  disappears into her white hat, Hunter META's three into black rubble, and all
+  53 un-limit-broken SR ships in the store read a 5-slot row where the game
+  draws 6 — a *silent wrong value*, worse than the 27 gaps the same fault left.
+  Gold sits on bright chrome and counts reliably. A dark star is only ever lost,
+  never invented, so `star_row_to_limit_break` takes the row length as the
+  largest of what the frame shows, what this ship read on an earlier pass
+  (`learn_star_totals`, rebuilt from the store each run) and what its rarity
+  implies (`star_total_floor`: Elite 5, SR/UR 6). Two exceptions in that floor:
+  a **Bulin's** row is 5 gold and no dark at all despite the name data calling
+  it super rare, and a **META** follows its own progression, so a META of a
+  Normal hull (Königsberg META) still shows 5 slots.
 - **Skill semantics**: "LEVEL: N" boxes are dark-on-light → gray-letter OCR
   (letter (90,90,90), thr 160). Locked cards read "LEVEL: ??" so classify
   digits-first, then padlock template (true ≥0.99 / false ≤0.49). Gray **"?"
@@ -172,6 +213,18 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   Both record `enhance_maxed: null` (dashboard shows n/a + META/PR badge).
   **Never blind-click sidebar slots** — on a PR ship that navigates into the
   Shipyard and off the detail page entirely.
+- **Bulins** (`NO_ENHANCE_HINT`) are the third no-Enhance family: their sidebar
+  is Gear + Info only, no Enhance and no LimitBreak. They carry `no_enhance` and
+  `missing_fields()` stops reporting their null enhance state — live, 7
+  Prototype Bulin MKII records sat in the repair list for good, each costing a
+  tab search that could never succeed.
+- Sidebar tab search relaxes its threshold towards `TAB_SIM_FLOOR` over
+  successive attempts, on a longer timeout. Dark art held both the plain and
+  luma match under `TAB_SIM` for the whole 9 s on Otto von Alvensleben (black
+  outfit) and Albacore μ (starfield), which is how their enhance state stayed
+  null. Only the *search* relaxes — arrival is still the opaque Fill button, so
+  a loose match costs a click, not a wrong reading; and Live2D drift means a
+  later frame often matches where the first did not.
 - Enhance tab: entry click via template+luma search (tabs shift one slot down on
   retrofit ships); **arrival = the opaque Fill button template** (tab highlight
   sims overlap; color counting false-positives on blue art). Return-to-Info
@@ -205,7 +258,13 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   covering every ship type/state). Validation script pattern (scratchpad,
   `validate_census.py`): boot with `module.config.server.server='en'`,
   instantiate readers via `ShipCensus.__new__` (no device), assert every reader
-  against every capture, positives and negatives. 145/145 at handoff.
+  against every capture, positives and negatives. 145/145 at handoff; 33/33 on
+  the repair fixes (star rows, match key, missing-field rules, phantom prune).
+- The frames under `screenshots/ship_census_repair/` are the other capture set —
+  one per ship the repair scan could not finish, which is what made all of this
+  diagnosable offline. Re-running a reader across both directories and diffing
+  old verdict vs new is the cheapest way to check a reader change does not lose
+  reads it used to get (the star-row change: 39 verdicts improved, 0 lost).
 - Live smoke: instantiate `ShipCensus(config='alas', task='ShipCensus')` in a
   script, monkeypatch `GRID_PAGE_LIMIT` / `SWEEP_SAFETY_LIMIT` small, point
   `CensusStore` at a scratch file. Set `PYTHONIOENCODING=utf-8` (cp1252 console
@@ -222,25 +281,29 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
 - **Auto-max task** (the owner's stated end goal): consume the store to pick
   targets — ExpFeed packs for leveling, the LimitBreak task, Academy for skills;
   keep the store schema versioned (`SCHEMA_VERSION` in store.py).
-- Enhance read came back null for 3 non-lab ships in run 1 — likely transient
-  timeouts; delta runs retry them. Investigate if it persists.
 - The dock re-entry lands on the intended card most of the time but not always:
   when the anchor ship's HP is shared by a neighbour (a duplicate copy, or an
   un-levelled ship that collides) it can land on the twin or a card or two off.
   The sweep detects landing on the same ship and swipes once more, so it always
-  moves forward, but a ship either side of the stall can be re-read (a phantom
-  `Name#2` record) or skipped. OCR'ing the card's name band would settle it.
-- First full sweep (2026-07-25, 545 ships) left these gaps: affinity 137,
-  limit break 71, rarity 21, enhance 15, skills 6, level 4. Repair-mode findings
-  so far: affinity gaps re-join fine on a second pass (so the first pass's grid
-  read simply missed those cards), and 62 of 186 targets have a stored HP that
-  matches no card at all — misread HP, so they need a name-based lookup (the
-  dock search box) rather than an HP one.
-- **Sidebar tabs can be unreachable on dark art**: `goto_sidebar_tab(Enhance)
-  timed out on Otto von Alvensleben (black outfit behind the translucent
-  sidebar), which is how her enhance state stayed null. The tab search needs a
-  fallback beyond template+luma - the frame is in
-  `screenshots/ship_census_repair/`.
+  moves forward, but a ship either side of the stall can be re-read or skipped.
+  OCR'ing the card's name band would settle it.
+- **Why 110 of the first repair run's 186 targets were never re-read**
+  (2026-07-26, all four causes now fixed — see the sections above):
+  46 were phantom records the sweep had invented at the end of the dock;
+  53 real ships were lost to the poisoned dock search field, in one unbroken
+  run of failures from the first unmatchable name onwards;
+  21 the walk passed but did not recognise, because the match key insisted on
+  the record's own (garbled) stored name.
+  Of the 76 it *did* re-read, 27 kept null limit breaks (lost dark stars),
+  7 were Bulins whose Enhance tab does not exist, and 1 (Albacore μ) lost its
+  sidebar tab search to dark art.
+- Affinity gaps whose stored HP matches no grid card are a knock-on of the
+  above: the ship is never opened, so its misread HP is never corrected and the
+  join has nothing to hook onto. They should follow the ships being reachable
+  again; re-check after the next repair run.
+- The grid pass itself still over-counts (551 vs 538 for the same dock). Nothing
+  depends on the total any more, but `overlap_length` failing is also why some
+  cards never make it into the affinity index.
 - Grid pass speed: screens that straddle a row boundary read 2 rows instead of
   3, so the sweep steps 1 row instead of 2. Nudging the dock into alignment once
   (the anchor y says by how much) would cut the grid pass roughly in half.
@@ -265,3 +328,10 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   paged by card drags instead of the scrollbar
 - `78083e4ef` blocked swipes no longer read as end-of-dock: rotating swipe
   boxes, dock re-entry (`dock_enter_at`), sweeps resume by tapping card N rewrite
+- `4e72e39ac` repair scan mode
+- `45da79db1` a dock drag that opened a ship no longer wrecks the grid sweep
+- _(this change)_ the four reasons repair mode left 110 of 186 targets
+  unvisited: phantom records at the end of the dock (`sweep_at_dock_end`,
+  `prune_phantom_copies`), the un-cleared dock search field, the name-only match
+  key, plus star rows that no longer need their dark stars and Bulins classified
+  as having no Enhance tab
