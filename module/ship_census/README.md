@@ -219,4 +219,6 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   fixed-level skills, store `READER_VERSION`
 - `a83e1341f` short sweeps no longer flag ships `missing`; grid-page re-read
 - `ce288dcd7` affinity join keyed on HP; grid rows found by their labels; dock
-  paged by card drags instead of the scrollbar rewrite
+  paged by card drags instead of the scrollbar
+- `78083e4ef` blocked swipes no longer read as end-of-dock: rotating swipe
+  boxes, dock re-entry (`dock_enter_at`), sweeps resume by tapping card N rewrite
