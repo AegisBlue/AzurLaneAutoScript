@@ -164,6 +164,7 @@ class GeneratedConfig:
     MetaLeveling_HealerSlot = 'main_2'  # none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3
     MetaLeveling_ClearerSlot = 'vanguard_1'  # none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3
     MetaLeveling_MinSwapLevel = 70
+    MetaLeveling_RequireMaxSkills = True
     MetaLeveling_ActivateSkills = True
     MetaLeveling_DoLimitBreak = True
     MetaLeveling_DoFortification = True

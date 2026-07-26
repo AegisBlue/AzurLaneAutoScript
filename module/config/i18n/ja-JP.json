@@ -1310,6 +1310,10 @@
       "name": "Minimum Swap-In Level",
       "help": "Only put META ships at or above this level into the farming fleet, highest level first. Ships below the floor stay in the dock for ExpFeed's pack feeding (Feed META Ships First). When every eligible ship is done but unfinished METAs remain below the floor, the task waits instead of disabling itself."
     },
+    "RequireMaxSkills": {
+      "name": "Wait for Maxed Skills",
+      "help": "A ship is only swapped out of the fleet once she reached Target Level AND all her skills are maxed. Skill levels are read from her META Lab (read-only, nothing is spent); the MetaLab task does the actual training. Turn this off to swap purely on level."
+    },
     "ActivateSkills": {
       "name": "Manage Skill Activation",
       "help": "Keep one unfinished skill actively gaining EXP on each META ship, and activate the next one when it maxes."

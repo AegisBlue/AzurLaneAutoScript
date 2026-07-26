@@ -3,9 +3,9 @@ from module.base.timer import Timer
 from module.campaign.run import CampaignRun
 from module.equipment.assets import FLEET_NEXT, FLEET_PREV, OCR_FLEET_INDEX
 from module.logger import logger
+from module.meta_leveling.meta_lab import MetaLab
 from module.ocr.ocr import Digit
 from module.retire.assets import DOCK_CHECK, DOCK_EMPTY, SHIP_DETAIL_CHECK
-from module.retire.dock import Dock
 from module.retire.scanner import ShipScanner
 from module.ui.page import page_fleet
 
@@ -38,13 +38,18 @@ SLOT_BUTTONS = {
 }
 
 
-class MetaLeveling(CampaignRun, Dock):
+class MetaLeveling(CampaignRun, MetaLab):
     """
     Campaign farmer for META ship LEVELS. Skills / fortification / somatic
     activation are handled by the MetaLab task; this task keeps the lowest-
     level META ships in the designated fleet, repeats the configured stage
     for level EXP (which also feeds the daily skill missions), and swaps a
     ship out for a lower-level META once she reaches TargetLevel.
+
+    MetaLab is inherited for its read-only lab navigation and skill reading
+    (check_skills_maxed): a ship that reached TargetLevel is only swapped
+    out once her skills are maxed as well. Only config-free MetaLab helpers
+    may be used here - this task has no MetaLab_* config keys.
     """
 
     # Set when neither the fleet nor the dock has a META ship below
@@ -78,6 +83,10 @@ class MetaLeveling(CampaignRun, Dock):
     @property
     def target_level(self):
         return int(self.config.MetaLeveling_TargetLevel)
+
+    @property
+    def require_max_skills(self):
+        return bool(self.config.MetaLeveling_RequireMaxSkills)
 
     def ui_goto_fleet(self):
         """
@@ -152,13 +161,18 @@ class MetaLeveling(CampaignRun, Dock):
 
     def inspect_slot(self, slot, button):
         """
-        Long-click a fleet slot, read the ship's level on her detail page,
-        return to the formation page.
+        Long-click a fleet slot, read the ship's level on her detail page
+        (and her skill levels once she is level-finished), return to the
+        formation page.
 
         Returns:
-            str: 'leveled'      at or above TargetLevel, swap her out
-                 'in_progress'  below TargetLevel, keep leveling
-                 'unknown'      could not read, keep
+            str: 'leveled'         at or above TargetLevel and skills done,
+                                   swap her out
+                 'skills_pending'  at or above TargetLevel but a skill is
+                                   still trainable, keep her until MetaLab
+                                   maxes it
+                 'in_progress'     below TargetLevel, keep leveling
+                 'unknown'         could not read, keep
 
         Pages:
             in: page_fleet
@@ -170,13 +184,27 @@ class MetaLeveling(CampaignRun, Dock):
         level = self.get_detail_level()
         logger.info(f'Slot {slot}: level {level}')
 
-        self.ui_back(check_button=page_fleet.check_button)
-
         if level == 0:
-            return 'unknown'
-        if level >= self.target_level:
-            return 'leveled'
-        return 'in_progress'
+            status = 'unknown'
+        elif level < self.target_level:
+            status = 'in_progress'
+        elif not self.require_max_skills:
+            status = 'leveled'
+        else:
+            # Level-finished: the skills decide whether she leaves the fleet
+            skills = self.check_skills_maxed()
+            if skills == 'unmaxed':
+                logger.info(f'Slot {slot}: level {level} reached but skills are not '
+                            'maxed yet, keeping her until MetaLab finishes them')
+                status = 'skills_pending'
+            else:
+                if skills == 'unknown':
+                    logger.warning(f'Slot {slot}: skill state could not be read, '
+                                   'swapping on the level criterion alone')
+                status = 'leveled'
+
+        self.ui_back(check_button=page_fleet.check_button)
+        return status
 
     def get_meta_candidate(self):
         """
@@ -277,8 +305,9 @@ class MetaLeveling(CampaignRun, Dock):
     def meta_maintenance(self):
         """
         The between-batches pass: check every managed fleet slot and swap
-        out ships that reached TargetLevel. Sets leveling_complete when the
-        whole fleet is leveled and the dock has nobody left to swap in.
+        out ships that reached TargetLevel with all skills maxed. Sets
+        leveling_complete when the whole fleet is finished and the dock has
+        nobody left to swap in.
 
         Returns:
             bool: True if the fleet is ready to keep farming.
@@ -309,7 +338,12 @@ class MetaLeveling(CampaignRun, Dock):
         # Farming is useful as long as one managed slot is still leveling
         if results and not any(status in ('in_progress', 'swapped', 'unknown')
                                for status in results.values()):
-            logger.warning('No slot is leveling and some could not be swapped')
+            if 'skills_pending' in results.values():
+                logger.info('Every managed slot is at TargetLevel and some are still '
+                            'waiting for MetaLab to max their skills before they can '
+                            'be swapped out')
+            else:
+                logger.warning('No slot is leveling and some could not be swapped')
             return False
         return True
 

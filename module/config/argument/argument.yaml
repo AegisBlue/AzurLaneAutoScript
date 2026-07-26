@@ -300,6 +300,8 @@ MetaLeveling:
     option: [ none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3 ]
   MinSwapLevel:
     value: 70
+  RequireMaxSkills:
+    value: true
   ActivateSkills:
     value: true
   DoLimitBreak:

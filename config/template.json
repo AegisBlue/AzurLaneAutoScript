@@ -386,6 +386,7 @@
       "HealerSlot": "main_2",
       "ClearerSlot": "vanguard_1",
       "MinSwapLevel": 70,
+      "RequireMaxSkills": true,
       "ActivateSkills": true,
       "DoLimitBreak": true,
       "DoFortification": true

@@ -2059,6 +2059,10 @@
         "type": "input",
         "value": 70
       },
+      "RequireMaxSkills": {
+        "type": "checkbox",
+        "value": true
+      },
       "ActivateSkills": {
         "type": "checkbox",
         "value": true
