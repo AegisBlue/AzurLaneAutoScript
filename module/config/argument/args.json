@@ -10145,6 +10145,7 @@
         "option": [
           "delta",
           "full",
+          "repair",
           "dashboard_only"
         ]
       },
