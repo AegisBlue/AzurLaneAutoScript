@@ -836,7 +836,7 @@ GameManager:
 ShipCensus:
   ScanMode:
     value: delta
-    option: [ delta, full, dashboard_only ]
+    option: [ delta, full, repair, dashboard_only ]
   RarityScope:
     value: elite_and_above
     option: [ elite_and_above, rare_and_above, all ]

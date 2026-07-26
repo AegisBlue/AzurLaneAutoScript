@@ -24,12 +24,39 @@ the first 80-160 before dying.
 
 ## How to run
 
-GUI: **Tool → Ship Census** (ScanMode: delta / full / dashboard_only). Task class:
+GUI: **Tool → Ship Census** (ScanMode: delta / full / repair / dashboard_only). Task class:
 `ShipCensus` in [census.py](census.py), dispatched via `alas.py:ship_census()`.
 Logs: `log/YYYY-MM-DD_alas.txt`. Safe to stop anytime — the sweep cursor is saved
 per ship and resumes. Delta runs re-read skills/level/stars/affinity for every
 ship each sweep (cheap, all on one screen); only the enhance-tab visit is skipped
 once a ship reads maxed (irreversible) or fresh within `StaleDays`.
+
+## Repair mode — diagnosing the dashboard's "-"
+
+`ScanMode: repair` re-reads **only** the records with gaps and writes down what
+happened to each one, instead of re-walking 550 ships to find out.
+
+- Targets come from `store.incomplete_ships()` (`missing_fields()` in store.py:
+  level / hp / affinity / limit break / skills, plus enhance for non-lab ships;
+  `rarity` is excluded — it comes from the name dictionary, not the screen).
+- Targets are scattered over the whole dock (live: cards 22-643 of 644), so the
+  walk swipes across short gaps and jumps through the dock (`dock_enter_at`) for
+  long ones, comparing costs (~2.5 s per card swiped vs ~1.2 s per row dragged).
+  Ships are matched to records by name+HP, never by position; a jump that lands
+  next to its target (grid positions drift from dock positions) swipes a few
+  cards ahead before giving up on it.
+- Records whose stored HP matches no card at all (65 of 186 live — a misread HP)
+  are reached by **name** instead: `dock_enter_by_name` types into the dock's
+  search box and walks the result set until the name matches. Verified on
+  4 of 4, including `Illustrious μ` (typed as "Illustrious", μ stripped) and the
+  two-word `Hammann II` (spaces sent as `%s` to `input text`).
+- Output: `config/ship_census_repair.json` — per ship, what was missing before
+  and after, plus **why** it is still missing, and one frame per still-incomplete
+  ship under `screenshots/ship_census_repair/`.
+- The affinity "why" is the useful part: for each gap it separates *no card with
+  this HP in the grid pass* (coverage), *card found but the value would not OCR*,
+  and *values existed but the ships sharing this HP took them* (the join's weak
+  spot — HP is not unique).
 
 ## Architecture
 
@@ -196,8 +223,17 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   The sweep detects landing on the same ship and swipes once more, so it always
   moves forward, but a ship either side of the stall can be re-read (a phantom
   `Name#2` record) or skipped. OCR'ing the card's name band would settle it.
-- No full end-to-end sweep of the ~550-ship dock has run yet (≈45 min). Watch
-  the first one: it should report `processed` ≈ the grid pass's card count.
+- First full sweep (2026-07-25, 545 ships) left these gaps: affinity 137,
+  limit break 71, rarity 21, enhance 15, skills 6, level 4. Repair-mode findings
+  so far: affinity gaps re-join fine on a second pass (so the first pass's grid
+  read simply missed those cards), and 62 of 186 targets have a stored HP that
+  matches no card at all — misread HP, so they need a name-based lookup (the
+  dock search box) rather than an HP one.
+- **Sidebar tabs can be unreachable on dark art**: `goto_sidebar_tab(Enhance)
+  timed out on Otto von Alvensleben (black outfit behind the translucent
+  sidebar), which is how her enhance state stayed null. The tab search needs a
+  fallback beyond template+luma - the frame is in
+  `screenshots/ship_census_repair/`.
 - Grid pass speed: screens that straddle a row boundary read 2 rows instead of
   3, so the sweep steps 1 row instead of 2. Nudging the dock into alignment once
   (the anchor y says by how much) would cut the grid pass roughly in half.

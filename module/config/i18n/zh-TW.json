@@ -2820,9 +2820,10 @@
     },
     "ScanMode": {
       "name": "Scan Mode",
-      "help": "delta: quick pass, only deep-scans new/changed/stale ships.\nfull: re-reads every ship from scratch.\ndashboard_only: no scanning, just regenerate the dashboard from stored data.",
+      "help": "delta: quick pass, only deep-scans new/changed/stale ships.\nfull: re-reads every ship from scratch.\nrepair: re-reads only the ships whose data has gaps (the \"-\" on the dashboard) and writes config/ship_census_repair.json plus a screenshot per ship that is still incomplete, for diagnosis.\ndashboard_only: no scanning, just regenerate the dashboard from stored data.",
       "delta": "Delta (only new/changed ships)",
       "full": "Full rescan",
+      "repair": "Repair (rescan ships with missing data)",
       "dashboard_only": "Dashboard only (no scan)"
     },
     "RarityScope": {

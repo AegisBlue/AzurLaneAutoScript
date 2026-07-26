@@ -62,6 +62,30 @@ def _now():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 
+def missing_fields(ship):
+    """
+    Which pieces of a record never came back.
+
+    Lab ships (META / PR research) have no Enhance tab at all, so a null
+    enhance_maxed is right for them and is not reported. `rarity` is left out
+    too: it comes from the name dictionary rather than the screen, so a gap
+    there means the name did not canonicalise and re-reading will not help.
+
+    Args:
+        ship (dict): One record.
+
+    Returns:
+        list[str]: Field names, empty when the record is complete.
+    """
+    missing = [field for field in ('level', 'hp', 'affinity', 'lb_current', 'lb_max')
+               if ship.get(field) is None]
+    if not ship.get('skills'):
+        missing.append('skills')
+    if ship.get('enhance_maxed') is None and not (ship.get('is_meta') or ship.get('is_research')):
+        missing.append('enhance_maxed')
+    return missing
+
+
 class CensusStore:
     def __init__(self, file=STORE_FILE):
         self.file = file
@@ -208,6 +232,20 @@ class CensusStore:
             ship['last_deep_scan'] = now
             ship['reader_version'] = READER_VERSION
         return ship
+
+    def incomplete_ships(self):
+        """
+        Records with gaps, for the repair scan.
+
+        Returns:
+            dict[str, list[str]]: key -> missing field names.
+        """
+        out = {}
+        for key, ship in self.ships.items():
+            missing = missing_fields(ship)
+            if missing:
+                out[key] = missing
+        return out
 
     def needs_deep_scan(self, key, level, stale_days, full=False):
         """

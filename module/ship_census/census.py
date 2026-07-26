@@ -23,9 +23,11 @@ import difflib
 import json
 import os
 import re
+from datetime import datetime
 
 import cv2
 import numpy as np
+from PIL import Image
 
 from module.base.button import Button
 from module.base.timer import Timer
@@ -36,7 +38,7 @@ from module.retire.assets import DOCK_EMPTY, DOCK_FIRST_NPC, SHIP_DETAIL_CHECK
 from module.retire.dock import CARD_GRIDS, DOCK_SCROLL, Dock
 from module.ship_census.assets import *
 from module.ship_census.dashboard import generate_dashboard
-from module.ship_census.store import CensusStore
+from module.ship_census.store import CensusStore, missing_fields as store_missing_fields
 from module.ui.assets import BACK_ARROW
 from module.ui.page import page_dock
 
@@ -191,6 +193,11 @@ CARD_LABEL_LUMA = 200
 CARD_LABEL_WIDTH = 8                       # min bright pixels in a label row
 # The Stats cycle button in the dock top bar: amber when an overlay page is
 # active (mean ~(167,122,69)), blue when off (~(66,80,119))
+# Dock search box: the magnifier toggles it, the field takes adb-typed text
+DOCK_SEARCH_BUTTON = _btn((648, 6, 692, 48), 'DOCK_SEARCH')
+DOCK_SEARCH_FIELD = _btn((710, 12, 970, 44), 'DOCK_SEARCH_FIELD')
+DOCK_SEARCH_FIRST_CARD = _btn((100, 90, 225, 265), 'DOCK_SEARCH_FIRST_CARD')
+DOCK_SEARCH_STATE_AREA = (648, 6, 692, 48)   # amber while open, blue when closed
 STATS_BUTTON = _btn((905, 10, 970, 44), 'STATS_BUTTON')
 STATS_STATE_AREA = (860, 8, 978, 45)
 # Card area watched by wait_until_stable before reading a page - the dock
@@ -208,6 +215,17 @@ RARITY_SCOPE = {
 # moves), so raw reads are fuzzy-matched to canonical names to keep store
 # keys stable. Unmatched names (data lag, e.g. newest ships) stay raw.
 SHIP_NAMES_FILE = os.path.join(os.path.dirname(__file__), 'ship_names_en.json')
+# Repair scan output: a JSON report plus one frame per ship that still has a
+# gap after being re-read, so the failure can be diagnosed offline
+REPAIR_REPORT_FILE = './config/ship_census_repair.json'
+REPAIR_FRAME_DIR = './screenshots/ship_census_repair'
+# Rough seconds per card swiped vs per row dragged, used to decide between
+# swiping to the next target and jumping through the dock to it
+REPAIR_SWIPE_COST = 2.5
+REPAIR_DRAG_COST = 1.2
+REPAIR_JUMP_OVERHEAD = 8.0
+# How far to swipe ahead when a jump lands next to the target instead of on it
+REPAIR_LOCAL_SEARCH = 3
 
 
 def _load_ship_names():
@@ -267,11 +285,290 @@ class ShipCensus(Dock):
         logger.hr('Ship census', level=1)
         logger.info('Mode: {}, ships on record: {}'.format(mode, len(store.ships)))
 
-        if mode != 'dashboard_only':
+        if mode == 'repair':
+            self.census_repair(store)
+        elif mode != 'dashboard_only':
             self.census_sweep(store, full=(mode == 'full'))
 
         path = generate_dashboard(store)
         logger.info('Dashboard written to {}'.format(path))
+
+    # ---------------- repair ----------------
+
+    def census_repair(self, store):
+        """
+        Re-read only the ships whose record has gaps (the dashboard's "-"), and
+        write down what happened to each one.
+
+        Targets cluster: the dock is sorted by level, and most gaps are on
+        low-level ships at the tail (dark limit-break stars vanish into dark
+        art, low HP values collide between ships and break the affinity join).
+        So the walk enters the dock at the first target and swipes forward to
+        the last, reading every ship on the way but only recording targets.
+
+        Every target that still has a gap afterwards gets its Info-view frame
+        saved next to the report, which is what makes the failure diagnosable
+        offline instead of by guesswork.
+
+        Pages:
+            in: Any
+            out: page_dock, filters reset
+        """
+        targets = store.incomplete_ships()
+        logger.hr('Census repair', level=2)
+        if not targets:
+            logger.info('No record has gaps, nothing to repair')
+            return
+        counts = {}
+        for fields in targets.values():
+            for field in fields:
+                counts[field] = counts.get(field, 0) + 1
+        logger.info('{} records with gaps: {}'.format(len(targets), counts))
+
+        self.ui_ensure(page_dock)
+        self.dock_search_close()
+        self.dock_favourite_set(enable=False, wait_loading=False)
+        self.dock_sort_method_dsc_set(True, wait_loading=False)
+        self.dock_filter_set(rarity=RARITY_SCOPE[self.config.ShipCensus_RarityScope])
+        grid = self.grid_pass()
+        affinity_index = self.grid_affinity_index(grid)
+        # How many affinity values this grid pass has per HP, before the walk
+        # starts consuming them - the difference between "the card was never
+        # read", "it was read but the value would not OCR" and "another ship
+        # sharing this HP took the value"
+        supply = {hp: len(values) for hp, values in affinity_index.items()}
+        logger.info('Grid pass: {} cards, {} with affinity'.format(
+            len(grid), sum(supply.values())))
+
+        # Which HP values to stop on, and how far the walk has to go
+        wanted = {}
+        for key, missing in targets.items():
+            hp = store.ships[key].get('hp')
+            if hp:
+                wanted.setdefault(hp, []).append(key)
+        grid_hps = set(hp for hp, _ in grid)
+        positions = sorted(i for i, (hp, _) in enumerate(grid) if hp in wanted)
+        unreachable = [key for key in targets
+                       if not store.ships[key].get('hp')
+                       or store.ships[key]['hp'] not in grid_hps]
+        if not positions:
+            logger.warning('No target ship could be found in the dock by HP')
+            self.dock_filter_set(wait_loading=False)
+            return
+        logger.info('{} targets sit between dock cards {} and {}; {} are not findable by HP '
+                    '(their stored HP matches no card)'.format(
+                        len(targets) - len(unreachable), positions[0], positions[-1],
+                        len(unreachable)))
+
+        report = dict(generated=None, targets=len(targets), grid_cards=len(grid),
+                      unreachable=unreachable, ships=[])
+        done = set()
+        visited = 0
+        index = -1
+        for position in positions:
+            if visited >= SWEEP_SAFETY_LIMIT:
+                logger.warning('Repair walk safety limit reached')
+                break
+            # Targets are scattered over the whole dock, so swipe only across
+            # short gaps and jump through the dock for long ones: a jump costs
+            # about position/14 drags, a swipe about 2.5 s per card.
+            gap = position - index
+            if index < 0 or gap <= 0 or gap * REPAIR_SWIPE_COST > \
+                    position / 14.0 * REPAIR_DRAG_COST + REPAIR_JUMP_OVERHEAD:
+                if not self.dock_enter_at(position, grid):
+                    logger.warning('Could not enter the dock at card {}, skipping'.format(position))
+                    continue
+                index = self.resync_index(position, grid)
+            else:
+                while index < position:
+                    advanced = False
+                    for attempt in range(len(SWIPE_BOXES)):
+                        if self.ship_view_next_safe(attempt):
+                            advanced = True
+                            break
+                        self.device.sleep((1.5, 2.5))
+                        self.device.click_record_clear()
+                    self.device.click_record_clear()
+                    if not advanced:
+                        break
+                    index += 1
+                if index < position:
+                    logger.info('Swiping stalled at card {}, jumping instead'.format(index))
+                    if not self.dock_enter_at(position, grid):
+                        continue
+                    index = self.resync_index(position, grid)
+
+            visited += 1
+            self.ensure_info_view()
+            detail = self.read_ship_detail()
+            key = self.repair_match_key(store, targets, done, detail)
+            # A jump lands within a card or two - grid positions and dock
+            # positions drift apart - so look a little way forward before
+            # writing this target off
+            for _ in range(REPAIR_LOCAL_SEARCH):
+                if key is not None:
+                    break
+                logger.info('Card {} is {!r} (HP {}), not a pending target - looking '
+                            'ahead'.format(index, detail['name'], detail['hp']))
+                if not self.ship_view_next_safe():
+                    break
+                index += 1
+                self.ensure_info_view()
+                detail = self.read_ship_detail()
+                key = self.repair_match_key(store, targets, done, detail)
+            if key is None:
+                continue
+            report['ships'].append(self.repair_ship(store, key, targets[key], detail,
+                                                    affinity_index, grid, supply))
+            done.add(key)
+            if len(done) >= len(targets) - len(unreachable):
+                break
+
+        # Targets whose stored HP matches no card are reachable only by name
+        for key in unreachable:
+            if visited >= SWEEP_SAFETY_LIMIT:
+                logger.warning('Repair walk safety limit reached')
+                break
+            name = store.ships[key].get('name')
+            if not name:
+                continue
+            visited += 1
+            if not self.dock_enter_by_name(name, want=name):
+                logger.info('{} could not be opened by name either'.format(key))
+                continue
+            detail = self.read_ship_detail()
+            report['ships'].append(self.repair_ship(store, key, targets[key], detail,
+                                                    affinity_index, grid, supply))
+            done.add(key)
+        if unreachable:
+            self.dock_search_close()
+
+        store.save()
+        self.detail_exit_to_dock()
+        self.dock_filter_set(wait_loading=False)
+        self.repair_write_report(report, targets, done, unreachable)
+
+    @staticmethod
+    def repair_match_key(store, targets, done, detail):
+        """
+        Which target record the ship now on screen belongs to - matched on name
+        and HP, never on position, since the walk passes non-targets too.
+
+        Returns:
+            str: Record key, or None if this ship is not a pending target.
+        """
+        if not detail['name']:
+            return None
+        pending = [key for key in targets if key not in done]
+        exact = [key for key in pending
+                 if store.ships[key].get('name') == detail['name']
+                 and store.ships[key].get('hp') == detail['hp']]
+        if exact:
+            return exact[0]
+        by_name = [key for key in pending if store.ships[key].get('name') == detail['name']]
+        if len(by_name) == 1:
+            logger.info('Matched {} by name (stored HP {}, read {})'.format(
+                by_name[0], store.ships[by_name[0]].get('hp'), detail['hp']))
+            return by_name[0]
+        return None
+
+    def repair_ship(self, store, key, missing_before, detail, affinity_index, grid, supply):
+        """
+        Re-record one target and note what is still missing and why.
+
+        Args:
+            supply (dict): HP -> affinity values the grid pass held before the
+                walk began, which is what separates a coverage gap from an OCR
+                failure from a value another ship with the same HP took.
+
+        Returns:
+            dict: One report entry.
+        """
+        logger.hr('Repairing {} (was missing {})'.format(key, ', '.join(missing_before)), level=2)
+        fields = self.ship_fields(detail, key, affinity_index)
+        if detail['is_meta'] or detail['is_research']:
+            fields['enhance_maxed'] = None
+        else:
+            fields['enhance_maxed'] = self.read_enhance_tab()
+        store.record(key, deep=True, **fields)
+        store.save()
+
+        hp = detail['hp']
+        cards = sum(1 for card_hp, _ in grid if card_hp == hp)
+        entry = dict(
+            key=key, name=detail['name'], hp=hp, level=detail['level'],
+            missing_before=missing_before,
+            missing_after=store_missing_fields(store.ships[key]),
+            grid_cards_with_this_hp=cards,
+            grid_affinities_for_this_hp=supply.get(hp, 0),
+            ships_sharing_this_hp=sum(1 for ship in store.ships.values()
+                                      if ship.get('hp') == hp),
+            reasons={},
+            frame=None,
+        )
+        if 'affinity' in entry['missing_after']:
+            if not hp:
+                entry['reasons']['affinity'] = 'HP unreadable, nothing to join on'
+            elif not cards:
+                entry['reasons']['affinity'] = 'no card with this HP in the grid pass ' \
+                                               '(the dock sweep never covered it)'
+            elif not supply.get(hp):
+                entry['reasons']['affinity'] = 'card found but its affinity value would not OCR'
+            else:
+                entry['reasons']['affinity'] = 'affinity values existed for this HP but were ' \
+                                               'taken by the {} ships that share it'.format(
+                                                   entry['ships_sharing_this_hp'])
+        for field in entry['missing_after']:
+            entry['reasons'].setdefault(field, 'the detail page read it as unavailable again')
+
+        if entry['missing_after']:
+            entry['frame'] = self.repair_save_frame(key)
+            logger.warning('{} still missing {}: {} (frame: {})'.format(
+                key, ', '.join(entry['missing_after']),
+                '; '.join('{}: {}'.format(k, v) for k, v in entry['reasons'].items()),
+                entry['frame']))
+        else:
+            logger.info('{} is complete now'.format(key))
+        return entry
+
+    def repair_save_frame(self, key):
+        """Save the current frame under screenshots/ship_census_repair/."""
+        self.ensure_info_view()
+        os.makedirs(REPAIR_FRAME_DIR, exist_ok=True)
+        name = re.sub(r'[^A-Za-z0-9#_.-]+', '_', key)
+        path = os.path.join(REPAIR_FRAME_DIR, '{}.png'.format(name))
+        try:
+            Image.fromarray(self.device.image).save(path)
+        except (OSError, ValueError) as e:
+            logger.warning('Could not save repair frame for {}: {}'.format(key, e))
+            return None
+        return path
+
+    @staticmethod
+    def repair_write_report(report, targets, done, unreachable):
+        """Write the repair report and log a summary of what is still missing."""
+        report['generated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        report['visited'] = len(done)
+        still = {}
+        for entry in report['ships']:
+            for field in entry['missing_after']:
+                still[field] = still.get(field, 0) + 1
+        report['still_missing'] = still
+        report['not_visited'] = [key for key in targets if key not in done]
+        try:
+            os.makedirs(os.path.dirname(REPAIR_REPORT_FILE), exist_ok=True)
+            with open(REPAIR_REPORT_FILE, 'w', encoding='utf-8') as f:
+                json.dump(report, f, ensure_ascii=False, indent=1)
+        except OSError as e:
+            logger.warning('Could not write the repair report: {}'.format(e))
+        logger.hr('Census repair result', level=2)
+        logger.info('Re-read {} of {} target ships'.format(len(done), len(targets)))
+        logger.info('Still missing after the re-read: {}'.format(still or 'nothing'))
+        if unreachable:
+            logger.info('{} targets could not be found in the dock by HP (their stored HP is '
+                        'null or no card matches it): {}'.format(
+                            len(unreachable), ', '.join(unreachable[:10])))
+        logger.info('Report written to {}'.format(REPAIR_REPORT_FILE))
 
     # ---------------- sweep ----------------
 
@@ -293,6 +590,7 @@ class ShipCensus(Dock):
 
         logger.hr('Census sweep', level=2)
         self.ui_ensure(page_dock)
+        self.dock_search_close()
         self.dock_favourite_set(enable=False, wait_loading=False)
         self.dock_sort_method_dsc_set(True, wait_loading=False)
         self.dock_filter_set(rarity=RARITY_SCOPE[scope])
@@ -425,6 +723,42 @@ class ShipCensus(Dock):
                 index.setdefault(hp, []).append(affinity)
         return index
 
+    @staticmethod
+    def ship_fields(detail, key, affinity_index):
+        """
+        Turn one detail-page read into record fields, taking the affinity from
+        the grid pass by HP (see grid_affinity_index; the matched entry is
+        consumed so a second copy of the same hull gets the next one).
+
+        Returns:
+            dict: Fields for CensusStore.record - only what was actually read,
+                so a failed affinity join leaves the stored value alone.
+        """
+        affinity = None
+        pending = affinity_index.get(detail['hp']) if detail['hp'] else None
+        if pending:
+            affinity = pending.pop(0)
+        else:
+            logger.info('No grid affinity for HP {}, affinity not updated'.format(detail['hp']))
+
+        fields = dict(
+            name=detail['name'],
+            copy=int(key.rsplit('#', 1)[1]),
+            level=detail['level'],
+            hp=detail['hp'],
+            is_meta=detail['is_meta'],
+            is_research=detail['is_research'],
+            lb_current=detail['lb_current'],
+            lb_max=detail['lb_max'],
+            skills=detail['skills'],
+            oathed=detail['oath_badge'] or (affinity is not None and affinity > 100),
+        )
+        if detail['rarity'] is not None:
+            fields['rarity'] = detail['rarity']
+        if affinity is not None:
+            fields['affinity'] = affinity
+        return fields
+
     def process_ship(self, store, affinity_index, stale_days=7, full=False):
         """
         Read the ship currently open on the detail page and upsert its record.
@@ -451,32 +785,7 @@ class ShipCensus(Dock):
         key = store.sweep_key(name)
         logger.hr('Ship {} (Lv.{})'.format(key, level), level=2)
 
-        # Join affinity from the grid pass by HP (see grid_affinity_index)
-        affinity = None
-        pending = affinity_index.get(detail['hp']) if detail['hp'] else None
-        if pending:
-            affinity = pending.pop(0)
-        else:
-            logger.info('No grid affinity for HP {}, affinity not updated'.format(detail['hp']))
-
-        oathed = detail['oath_badge'] or (affinity is not None and affinity > 100)
-
-        fields = dict(
-            name=name,
-            copy=int(key.rsplit('#', 1)[1]),
-            level=level,
-            hp=detail['hp'],
-            is_meta=detail['is_meta'],
-            is_research=detail['is_research'],
-            lb_current=detail['lb_current'],
-            lb_max=detail['lb_max'],
-            skills=detail['skills'],
-            oathed=oathed,
-        )
-        if detail['rarity'] is not None:
-            fields['rarity'] = detail['rarity']
-        if affinity is not None:
-            fields['affinity'] = affinity
+        fields = self.ship_fields(detail, key, affinity_index)
 
         if not full and not store.needs_deep_scan(key, level, stale_days):
             logger.info('Record fresh, enhance tab skipped')
@@ -1232,6 +1541,104 @@ class ShipCensus(Dock):
                 self.device.click(button)
                 self.device.click_record_clear()
                 clicked.reset()
+
+    def dock_enter_by_name(self, name, want=None, tries=4):
+        """
+        Open a ship through the dock's search box.
+
+        This is the way in for records whose stored HP matches no card - a
+        misread HP leaves the name as the only handle. The search is a prefix
+        match over every owned ship, so "Bristol" also offers Bristol META:
+        the result set is walked with swipes until the name matches `want`.
+        The first tap on a card only dismisses the suggestion dropdown and the
+        IME, hence the retry loop.
+
+        Args:
+            name (str): What to type (stylised suffixes are stripped).
+            want (str): Canonical name to stop on; defaults to `name`.
+            tries (int): How many ships of the result set to check.
+
+        Returns:
+            bool: True with that ship's detail page open.
+
+        Pages:
+            in: Any
+            out: SHIP_DETAIL_CHECK, or page_dock if it failed
+        """
+        want = want or name
+        query = re.sub(r'\(.*?\)', ' ', name)
+        query = re.sub(r'[^A-Za-z0-9 ]+', ' ', query)
+        query = ' '.join(query.split()[:2]).strip()
+        if not query:
+            return False
+        logger.info('Searching the dock for {!r} (want {!r})'.format(query, want))
+        self.ui_ensure(page_dock)
+        self.device.click(DOCK_SEARCH_BUTTON)
+        self.device.sleep((1.2, 1.5))
+        self.device.click(DOCK_SEARCH_FIELD)
+        self.device.sleep((1.2, 1.5))
+        self.device.adb_shell(['input', 'text', query.replace(' ', '%s')])
+        self.device.sleep((1.0, 1.4))
+        self.device.adb_shell(['input', 'keyevent', '66'])
+        self.device.sleep((1.5, 2.0))
+
+        timeout = Timer(20, count=20).start()
+        clicked = Timer(2.5)
+        while 1:
+            self.device.screenshot()
+            if self.appear(SHIP_DETAIL_CHECK, offset=(20, 20)):
+                break
+            if timeout.reached():
+                logger.warning('Search for {!r} opened nothing'.format(query))
+                self.dock_search_close()
+                return False
+            if self.handle_info_bar():
+                continue
+            if clicked.reached():
+                self.device.click(DOCK_SEARCH_FIRST_CARD)
+                self.device.click_record_clear()
+                clicked.reset()
+
+        for _ in range(tries):
+            self.device.sleep((0.8, 1.2))
+            self.ensure_info_view()
+            got = self.canonical_name(self._clean_name(OCR_NAME.ocr(self.device.image)))[0]
+            if got == want:
+                return True
+            logger.info('Search result is {!r}, looking further'.format(got))
+            if not self.ship_view_next_safe():
+                break
+        logger.info('{!r} was not among the search results'.format(want))
+        return False
+
+    def dock_search_is_open(self):
+        """The magnifier is amber while the search box is open, blue when not."""
+        mean = np.array(crop(self.device.image, DOCK_SEARCH_STATE_AREA)).reshape(-1, 3).mean(axis=0)
+        return mean[0] > 120 and mean[0] > mean[2]
+
+    def dock_search_close(self, skip_first_screenshot=False):
+        """
+        Close the dock's search box if it is open.
+
+        Leaving it open filters the dock down to one ship AND hides the Favorite
+        and Stats buttons, so the next pass cannot set its filters and clicks
+        itself into a GameTooManyClickError (live, after a name lookup left it
+        open). Every mode therefore clears it before touching the dock.
+        """
+        self.ui_ensure(page_dock)
+        for _ in range(3):
+            if skip_first_screenshot:
+                skip_first_screenshot = False
+            else:
+                self.device.screenshot()
+            if not self.dock_search_is_open():
+                return True
+            logger.info('Dock search box is open, closing it')
+            self.device.click(DOCK_SEARCH_BUTTON)
+            self.device.sleep((1.0, 1.4))
+            self.device.click_record_clear()
+        logger.warning('Could not close the dock search box')
+        return False
 
     def dock_card_point(self, image, col, target_hp=None, after_hp=None):
         """
