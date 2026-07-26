@@ -184,6 +184,9 @@ CARD_GRID_TOP = 60                         # y band the dock draws cards in
 CARD_GRID_BOTTOM = 720
 CARD_ROW_SEPARATION = 60                   # min y gap between two card rows
 CARD_ROW_PITCH = 227                       # px between card rows
+# Where to tap a card, relative to (column x, HP label y): the middle of the
+# card, clear of the lock icon and the name band
+CARD_TAP_REL = (75, 60)
 CARD_LABEL_LUMA = 200
 CARD_LABEL_WIDTH = 8                       # min bright pixels in a label row
 # The Stats cycle button in the dock top bar: amber when an overlay page is
@@ -236,11 +239,18 @@ GRID_DRAG_Y = 620
 GRID_DRAG_ROWS_MAX = 2
 GRID_REWIND_LIMIT = 3
 GRID_STUCK_LIMIT = 2
-# Ship-to-ship swipe box: the stock equipment SWIPE_AREA reaches y=527, where
-# the secretary dialogue bubble swallows drags (live: a sweep died at ship 2
-# when both random swipe points landed on it)
-CENSUS_SWIPE_AREA = Button(area=(225, 180, 570, 430), color=(),
-                           button=(225, 180, 570, 430), name='CENSUS_SWIPE_AREA')
+# Ship-to-ship swipe boxes, (area, stroke length), tried in order. The stock
+# equipment SWIPE_AREA reaches y=527, where the secretary dialogue bubble
+# swallows drags (live: a sweep died at ship 2 when both random swipe points
+# landed on it). Whatever eats a stroke - the bubble, a touch animation, a
+# Live2D skin - covers a fixed part of the page and clears after a while, so
+# every retry moves the stroke somewhere else and lengthens it.
+SWIPE_BOXES = [
+    ((225, 180, 570, 430), 250),
+    ((225, 150, 570, 300), 400),
+    ((140, 180, 420, 430), 250),
+    ((150, 150, 660, 260), 400),
+]
 # Star totals are rarity base + 3; Elite and above only produce 5 or 6 slot
 # rows, so anything else is a misread (dark stars can vanish into dark art)
 STAR_TOTAL_VALID = (5, 6)
@@ -304,41 +314,45 @@ class ShipCensus(Dock):
         # NPC rentals occupy card 1 during events; dock_enter_first skips them
         self.device.screenshot()
         npc_offset = 1 if self.appear(DOCK_FIRST_NPC, offset=(20, 20)) else 0
-        if not self.dock_enter_first():
+        entered = False
+        if skip:
+            # Resuming: tap straight into card `skip` instead of swiping past
+            # every ship already done (on a 550-ship dock that alone is 15 min)
+            if self.dock_enter_at(skip + npc_offset, grid):
+                skip = self.resync_index(skip + npc_offset, grid) - npc_offset
+                entered = True
+            else:
+                logger.warning('Could not resume at card {}, restarting the sweep from '
+                               'the top'.format(skip + npc_offset))
+                skip = 0
+        if not entered and not self.dock_enter_first():
             logger.info('No enterable ship in dock')
             store.sweep_end(complete=True)
             store.save()
             self.dock_filter_set(wait_loading=False)
             return
 
-        for _ in range(skip):
-            self.device.click_record_clear()
-            if not self.ship_view_next_safe():
-                logger.info('Dock ended during resume skip, sweep was already complete')
-                store.sweep_end(complete=True)
-                store.save()
-                self.detail_exit_to_dock()
-                self.dock_filter_set(wait_loading=False)
-                return
-
         visited = 0
         complete = False
         index = skip + npc_offset
         while 1:
             visited += 1
-            self.process_ship(store, affinity_index, stale_days=stale_days, full=full)
+            last_hp = self.process_ship(store, affinity_index, stale_days=stale_days,
+                                        full=full)
             store.save()
             self.device.click_record_clear()
             index += 1
             if visited >= SWEEP_SAFETY_LIMIT:
                 logger.warning('Census sweep safety limit reached')
                 break
-            # A failed swipe can mean end-of-dock OR a swallowed drag (Live2D
-            # skins eat them occasionally); the grid pass knows how many
-            # cards exist, so a premature "end" gets retried
+            # A failed swipe can mean end-of-dock OR a swallowed drag: the
+            # secretary's dialogue bubble and her touch animations cover part
+            # of the page for a while and eat every stroke that lands on them,
+            # so each retry uses a different box (SWIPE_BOXES). The grid pass
+            # knows how many cards exist, so a premature "end" gets retried.
             advanced = False
-            for attempt in range(3):
-                if self.ship_view_next_safe():
+            for attempt in range(len(SWIPE_BOXES)):
+                if self.ship_view_next_safe(attempt):
                     advanced = True
                     break
                 if index >= cards:
@@ -347,6 +361,22 @@ class ShipCensus(Dock):
                             'cards'.format(attempt + 1, cards - index))
                 self.device.sleep((1.5, 2.5))
                 self.device.click_record_clear()
+            # Swiping can stay blocked for as long as an animation runs (live:
+            # a sweep died 161 ships in with 71 cards still to go, and the same
+            # ship swiped fine minutes later). Going back to the dock and
+            # tapping the next card is not subject to any of that.
+            if not advanced and index < cards:
+                logger.info('Swipe sweep stalled at card {}, re-entering from the '
+                            'dock'.format(index))
+                advanced = self.dock_enter_at(index, grid, after_hp=last_hp)
+                if advanced:
+                    index = self.resync_index(index, grid)
+                    # Landing back on the ship we just read would record it a
+                    # second time under a phantom "#2" copy key
+                    if last_hp and OCR_DETAIL_HP.ocr(self.device.image) == last_hp:
+                        logger.info('Re-entered on the same ship, swiping once more')
+                        if not self.ship_view_next_safe():
+                            advanced = False
             if not advanced:
                 logger.info('Census sweep reached the end of the dock')
                 complete = True
@@ -403,6 +433,10 @@ class ShipCensus(Dock):
             store (CensusStore):
             affinity_index (dict): From grid_affinity_index, consumed in place.
 
+        Returns:
+            int: HP of the ship just read - what identifies this card in the
+                dock if the sweep has to re-enter (None if unreadable).
+
         Pages:
             in: SHIP_DETAIL_CHECK (Info view)
             out: SHIP_DETAIL_CHECK (Info view)
@@ -413,7 +447,7 @@ class ShipCensus(Dock):
         if not name:
             logger.warning('Ship name unreadable, ship skipped')
             store.sweep_advance(None)
-            return
+            return detail['hp']
         key = store.sweep_key(name)
         logger.hr('Ship {} (Lv.{})'.format(key, level), level=2)
 
@@ -448,7 +482,7 @@ class ShipCensus(Dock):
             logger.info('Record fresh, enhance tab skipped')
             store.record(key, **fields)
             store.sweep_advance(key)
-            return
+            return detail['hp']
 
         # Enhance state needs a tab visit; once maxed it stays maxed. Lab
         # ships (META / PR research) have no Enhance tab at all - their
@@ -464,6 +498,7 @@ class ShipCensus(Dock):
 
         store.record(key, deep=True, **fields)
         store.sweep_advance(key)
+        return detail['hp']
 
     # ---------------- detail page readers ----------------
 
@@ -871,7 +906,10 @@ class ShipCensus(Dock):
         """
         Read the visible page, re-reading while values come back unreadable and
         keeping the best attempt. Attempts are never merged - a read that finds
-        one card row fewer would merge rows of different ships together.
+        one card row fewer would merge rows of different ships together. An
+        identical repeat ends it early: whatever is unreadable in this frame
+        (a value clipped by the screen edge, art washing out a digit) will stay
+        unreadable, and every retry costs a second.
 
         Returns:
             (list[list], bool): rows of (hp, affinity) pairs in dock order, and
@@ -879,6 +917,7 @@ class ShipCensus(Dock):
         """
         best = ([], False)
         best_score = -1
+        previous = None
         for attempt in range(attempts):
             self.grid_wait_stable()
             rows, ended = self.grid_page_rows(self.read_grid_page(self.device.image))
@@ -887,9 +926,13 @@ class ShipCensus(Dock):
                              if hp is None or aff is None)
             if cards - unreadable > best_score:
                 best, best_score = (rows, ended), cards - unreadable
-            at_bottom = not DOCK_SCROLL.appear(main=self) or DOCK_SCROLL.at_bottom(main=self)
-            if not unreadable and (not ended or at_bottom):
+            if not unreadable:
                 break
+            if rows == previous:
+                logger.info('Grid page {}: {} cards, {} unreadable and unchanged on a '
+                            're-read, taking it'.format(page, cards, unreadable))
+                break
+            previous = rows
             logger.info('Grid page {}: {} cards, {} unreadable, ended={} - re-reading '
                         '({}/{})'.format(page, cards, unreadable, ended, attempt + 1, attempts))
             self.device.sleep((0.6, 0.9))
@@ -1091,19 +1134,202 @@ class ShipCensus(Dock):
 
     # ---------------- navigation ----------------
 
-    def ship_view_next_safe(self):
+    def ship_view_next_safe(self, attempt=0):
         """
-        ship_view_next with the dialogue-safe swipe box swapped in for the
+        ship_view_next with a dialogue-safe swipe box swapped in for the
         duration of the call (Equipment._ship_view_swipe reads the module
-        global at call time; tasks run single-threaded so this is safe).
+        globals at call time; tasks run single-threaded so this is safe).
+
+        Args:
+            attempt (int): Retry number - each one uses a different box and
+                stroke length from SWIPE_BOXES, because whatever swallowed the
+                last stroke (dialogue bubble, touch animation) covers a fixed
+                part of the page.
         """
         from module.equipment import equipment as equipment_mod
-        saved = equipment_mod.SWIPE_AREA
-        equipment_mod.SWIPE_AREA = CENSUS_SWIPE_AREA
+        area, distance = SWIPE_BOXES[attempt % len(SWIPE_BOXES)]
+        saved_area = equipment_mod.SWIPE_AREA
+        saved_distance = equipment_mod.SWIPE_DISTANCE
+        equipment_mod.SWIPE_AREA = _btn(area, 'CENSUS_SWIPE_AREA')
+        equipment_mod.SWIPE_DISTANCE = distance
         try:
             return self.ship_view_next(check_button=SHIP_DETAIL_CHECK)
         finally:
-            equipment_mod.SWIPE_AREA = saved
+            equipment_mod.SWIPE_AREA = saved_area
+            equipment_mod.SWIPE_DISTANCE = saved_distance
+
+    def dock_enter_at(self, index, grid, after_hp=None):
+        """
+        Open dock card `index` directly, from wherever the UI currently is.
+
+        Used to resume an interrupted sweep and to get past a page where
+        swiping is blocked. The dock is scrolled by whole card rows with the
+        Stats overlay on, so the wanted card can be recognised before it is
+        tapped - the scroll only lands within a row or so, and tapping the
+        wrong card shifts the rest of the sweep.
+
+        Recognition prefers `after_hp`, the ship the sweep last read: the card
+        after it is exactly where the sweep wants to go, and that does not
+        depend on the grid pass and the dock agreeing on positions (they drift
+        apart - the grid can read a card twice when two screens fail to share
+        one). The grid's own HP for `index` is the next best hint, and plain
+        geometry the last resort.
+
+        Args:
+            index (int): 0-based position in dock order.
+            grid (list): Grid pass entries, for the HP hints.
+            after_hp (int): HP of the ship to continue after, if known.
+
+        Returns:
+            bool: True if the ship's detail page is open.
+
+        Pages:
+            in: Any
+            out: SHIP_DETAIL_CHECK, or page_dock if it failed
+        """
+        logger.info('Entering dock card {}'.format(index))
+        self.ui_ensure(page_dock)
+        if DOCK_SCROLL.appear(main=self):
+            DOCK_SCROLL.set_top(main=self)
+            self.device.click_record_clear()
+            self.device.sleep((0.6, 1.0))
+        if not self.overlay_set(True):
+            logger.warning('Could not reach the Affinity overlay, cannot locate card {}'
+                           .format(index))
+            return False
+
+        # Stop a row short so the target lands mid-screen: a row of drags
+        # accumulates a few px of error, and a card at the very top edge is
+        # half cut off, unreadable, and therefore unfindable
+        remaining = max(index // 7 - 1, 0)
+        while remaining > 0:
+            step = min(remaining, GRID_DRAG_ROWS_MAX)
+            self.grid_drag_rows(step)
+            remaining -= step
+        self.grid_wait_stable()
+        target_hp = grid[index][0] if 0 <= index < len(grid) else None
+        point = self.dock_card_point(self.device.image, index % 7, target_hp, after_hp)
+        self.overlay_set(False)
+        if point is None:
+            logger.warning('Card {} not found in the dock'.format(index))
+            return False
+
+        button = _btn((point[0] - 20, point[1] - 20, point[0] + 20, point[1] + 20),
+                      'DOCK_CARD_%s' % index)
+        timeout = Timer(12, count=12).start()
+        clicked = Timer(2.5)
+        while 1:
+            self.device.screenshot()
+            if self.appear(SHIP_DETAIL_CHECK, offset=(20, 20)):
+                self.device.sleep((0.8, 1.2))
+                return True
+            if timeout.reached():
+                logger.warning('Card {} did not open'.format(index))
+                return False
+            if self.handle_info_bar():
+                continue
+            if clicked.reached():
+                self.device.click(button)
+                self.device.click_record_clear()
+                clicked.reset()
+
+    def dock_card_point(self, image, col, target_hp=None, after_hp=None):
+        """
+        Where to tap for the card the sweep wants next: the card following
+        `after_hp` if that ship is on screen, else the card whose HP is
+        `target_hp`, else the second visible card of column `col`.
+
+        Returns:
+            (int, int): Tap point, or None if nothing usable is on screen.
+        """
+        found = []
+        for c in range(7):
+            for hp_y, aff_y in self.card_anchors(image, c):
+                found.append((hp_y, c, aff_y))
+        found.sort()
+        # Dock order: cluster into rows the same way read_grid_page does, never
+        # by dividing y by the row pitch - rows sit at an arbitrary offset, so
+        # a row at y=145 buckets as row 1 and the order comes out scrambled
+        rows = []
+        tops = []
+        for hp_y, c, aff_y in found:
+            if not rows or hp_y - tops[-1] > CARD_ROW_SEPARATION:
+                rows.append([])
+                tops.append(hp_y)
+            rows[-1].append((c, hp_y, aff_y))
+        cards = [(c, hp_y, self.read_card(image, c, hp_y, aff_y)[0])
+                 for row in rows for c, hp_y, aff_y in sorted(row)]
+        if not cards:
+            return None
+
+        def point(card):
+            return self.card_x(card[0]) + CARD_TAP_REL[0], card[1] + CARD_TAP_REL[1]
+
+        if after_hp:
+            previous = [i for i, x in enumerate(cards) if x[2] == after_hp]
+            if previous:
+                # HP is not unique - duplicate copies share one, and so do
+                # different un-levelled ships (Le Triomphant and Le Malin both
+                # sit at 326) - so pick the match nearest where the scroll was
+                # aimed: the card just before the target, which was placed on
+                # the second visible row of column `col`.
+                expected = max(self.dock_card_slot(cards, col, 1) - 1, 0)
+                i = min(previous, key=lambda i: abs(i - expected))
+                if i + 1 < len(cards):
+                    logger.info('Card located as the one after HP {}'.format(after_hp))
+                    return point(cards[i + 1])
+        if target_hp:
+            match = [x for x in cards if x[2] == target_hp]
+            if match:
+                pick = min(match, key=lambda x: (x[0] != col, x[1]))
+                logger.info('Card located by HP {} at column {}'.format(target_hp, pick[0]))
+                return point(pick)
+            logger.info('HP {} not on screen, falling back to column {}'.format(target_hp, col))
+        column = [x for x in cards if x[0] == col]
+        if not column:
+            return None
+        # Second visible row where possible - the target was scrolled to sit
+        # mid-screen, so the topmost row is the one before it
+        return point(sorted(column, key=lambda x: x[1])[1 if len(column) > 1 else 0])
+
+    @staticmethod
+    def dock_card_slot(cards, col, row):
+        """
+        Position within `cards` (dock order) of the card at screen row `row`,
+        column `col` - or the nearest thing on screen.
+        """
+        tops = sorted(set(hp_y for _, hp_y, _ in cards))
+        if not tops:
+            return 0
+        want_y = tops[min(row, len(tops) - 1)]
+        return min(range(len(cards)),
+                   key=lambda i: (abs(cards[i][1] - want_y) > CARD_ROW_SEPARATION,
+                                  abs(cards[i][0] - col)))
+
+    def resync_index(self, index, grid, window=12):
+        """
+        Work out which dock card actually opened, by matching the ship's HP
+        against the grid pass around the expected position. The scroll lands
+        within a row of the target, and being one row out would otherwise skip
+        or repeat seven ships for the rest of the sweep.
+
+        Returns:
+            int: Corrected dock index.
+        """
+        self.ensure_info_view()
+        hp = OCR_DETAIL_HP.ocr(self.device.image)
+        if not hp:
+            return index
+        low, high = max(index - window, 0), min(index + window + 1, len(grid))
+        matches = [i for i in range(low, high) if grid[i][0] == hp]
+        if not matches:
+            logger.info('Re-entered on HP {}, which the grid does not have near card '
+                        '{}'.format(hp, index))
+            return index
+        best = min(matches, key=lambda i: abs(i - index))
+        if best != index:
+            logger.info('Re-entered at card {} rather than {}'.format(best, index))
+        return best
 
     def detail_exit_to_dock(self, skip_first_screenshot=True):
         """Back out from ship detail to page_dock (MetaLab's exit idiom)."""

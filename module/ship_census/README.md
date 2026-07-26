@@ -91,9 +91,25 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
 **Detail page**
 - The detail page lands on the Info view. Ship-to-ship swipes survive sidebar
   tab visits and Archive detours, but the stock `SWIPE_AREA` overlaps the
-  secretary dialogue bubble which eats drags → `CENSUS_SWIPE_AREA` (225,180,570,430)
-  is swapped into the equipment module global per call. A premature "end of dock"
-  is retried up to 3× while the grid count says more cards exist.
+  secretary dialogue bubble which eats drags → `SWIPE_BOXES` (swapped into the
+  equipment module globals per call) holds four boxes/stroke lengths and each
+  retry uses the next one, since whatever swallows a stroke covers a fixed part
+  of the page and clears on its own after a while.
+- **A blocked swipe is not the end of the dock.** When every box fails, the
+  sweep goes back to the dock and taps the next card (`dock_enter_at`) instead
+  of concluding it is done — live, a sweep died 161 ships in with 71 cards to
+  go, and the same ship swiped fine minutes later. The same path resumes an
+  interrupted sweep (tapping card N beats swiping past N ships: 15 min on a
+  550-ship dock).
+- Tapping a specific card: scroll with the Stats overlay on so cards can be
+  identified by HP, aim a row short (the target lands mid-screen, and a card at
+  the screen edge is half cut and unfindable), then anchor on the **HP of the
+  ship just read** and tap the card after it. **HP is not unique** — duplicate
+  copies share one, and so do different un-levelled ships (Le Triomphant and
+  Le Malin both sit at 326) — so rank matches by how close they are to where
+  the scroll was aimed, and confirm afterwards with `resync_index` (which
+  re-derives the dock index from the HP that actually opened). Grid-pass
+  positions drift from true dock positions, so they are a hint, never the key.
 - Star row (240,50)-(430,95): gold templates = current LB, dark = remaining;
   total clamps to {5,6} (Elite max 5, SR/UR/META 6; dark stars vanish on dark art
   → implausible totals record null). Works for META activation stars too.
@@ -174,13 +190,14 @@ delta run instead of sitting on a stale wrong value until `StaleDays` expires), 
   keep the store schema versioned (`SCHEMA_VERSION` in store.py).
 - Enhance read came back null for 3 non-lab ships in run 1 — likely transient
   timeouts; delta runs retry them. Investigate if it persists.
-- **The detail (swipe) sweep can still die early** — 2026-07-25 runs stopped at
-  81, 49 and 161 ships ("reached the end of the dock" after 3 failed swipe
-  retries) when the dock actually holds ~550. Since `a83e1341f` a short sweep no
-  longer counts as complete (so it can't brand unvisited ships `missing` →
-  dashboard "gone?"), but the swallowed-swipe cause is unfixed and it is now the
-  biggest gap in the feature. Check the processed-ship count in the log against
-  the grid pass's card count before trusting a run.
+- The dock re-entry lands on the intended card most of the time but not always:
+  when the anchor ship's HP is shared by a neighbour (a duplicate copy, or an
+  un-levelled ship that collides) it can land on the twin or a card or two off.
+  The sweep detects landing on the same ship and swipes once more, so it always
+  moves forward, but a ship either side of the stall can be re-read (a phantom
+  `Name#2` record) or skipped. OCR'ing the card's name band would settle it.
+- No full end-to-end sweep of the ~550-ship dock has run yet (≈45 min). Watch
+  the first one: it should report `processed` ≈ the grid pass's card count.
 - Grid pass speed: screens that straddle a row boundary read 2 rows instead of
   3, so the sweep steps 1 row instead of 2. Nudging the dock into alignment once
   (the anchor y says by how much) would cut the grid pass roughly in half.
