@@ -753,9 +753,13 @@ class MetaLab(Dock):
         way around it.
 
         Returns:
-            str: 'maxed'    the "already max level" notice is up
-                 'unmaxed'  the card can be learned, started or fed
-                 'empty'    the slot has no (selectable) skill
+            str: 'maxed'        the "already max level" notice is up
+                 'researching'  the ship's research slot sits on this skill
+                                (Quick Train offered)
+                 'idle'         learned but not researching (Begin Research)
+                 'trainable'    not learned yet (the learn dialog opened and
+                                was cancelled)
+                 'empty'        the slot has no (selectable) skill
 
         Pages:
             in: TACTICS_CHECK
@@ -781,7 +785,7 @@ class MetaLab(Dock):
             if self.appear(LEARN_CHECK, offset=(20, 20)):
                 self.ui_click(LEARN_CANCEL, check_button=TACTICS_CHECK,
                               offset=(20, 20), skip_first_screenshot=True)
-                return 'unmaxed'
+                return 'trainable'
 
             if not self.appear(TACTICS_CHECK, offset=(20, 20)):
                 continue
@@ -792,15 +796,90 @@ class MetaLab(Dock):
 
             if self.skill_maxed_notice():
                 return 'maxed'
-            # Learned but idle (Begin Research) or researching (Quick Train)
-            if self.appear(BEGIN_RESEARCH, offset=(20, 20)) \
-                    or self.appear(QUICK_TRAIN, offset=(20, 20)):
-                return 'unmaxed'
+            # Begin Research = learned but the research slot is elsewhere;
+            # Quick Train = this is the skill the ship is researching
+            if self.appear(BEGIN_RESEARCH, offset=(20, 20)):
+                return 'idle'
+            if self.appear(QUICK_TRAIN, offset=(20, 20)):
+                return 'researching'
 
-    def tactics_all_maxed(self):
+    def start_skill_research(self, index, allow_learn=True):
         """
-        Read-only audit of the three skill cards on the Tactical Training
-        screen. Nothing is learned, started or fed.
+        Put the ship's single research slot on skill card `index`: start
+        research on a learned-but-idle skill (free), or learn a not-yet
+        learned one (5 red T3 skill books) when `allow_learn`. Feeds no
+        books - Quick Train is MetaLab's job.
+
+        Returns:
+            bool: True if the skill is researching afterwards.
+
+        Pages:
+            in: TACTICS_CHECK
+            out: TACTICS_CHECK
+        """
+        logger.info(f'Starting research on skill card {index + 1}')
+        card = TACTICS_SKILL_CARDS[index]
+        timeout = Timer(20, count=20).start()
+        self.interval_clear(TACTICS_CHECK)
+        skip_first_screenshot = True
+        while 1:
+            if skip_first_screenshot:
+                skip_first_screenshot = False
+            else:
+                self.device.screenshot()
+
+            if timeout.reached():
+                logger.warning(f'Skill card {index + 1}: research did not start')
+                return False
+
+            if self.appear(LEARN_CHECK, offset=(20, 20)):
+                if not allow_learn:
+                    logger.info('Skill not learned yet and learning is disabled')
+                    self.ui_click(LEARN_CANCEL, check_button=TACTICS_CHECK,
+                                  offset=(20, 20), skip_first_screenshot=True)
+                    return False
+                # Only a click buys more time - a dialog whose Confirm never
+                # matches must run into the timeout, not loop forever
+                if self.appear_then_click(LEARN_CONFIRM, offset=(20, 20), interval=3):
+                    timeout.reset()
+                continue
+            if self.handle_popup_confirm('START_RESEARCH'):
+                timeout.reset()
+                continue
+
+            if not self.appear(TACTICS_CHECK, offset=(20, 20)):
+                continue
+            if not self.skill_card_selected(index):
+                if self.appear(TACTICS_CHECK, offset=(20, 20), interval=3):
+                    self.device.click(card)
+                continue
+
+            if self.skill_maxed_notice():
+                logger.info(f'Skill card {index + 1}: already max level')
+                return False
+            if self.appear(BEGIN_RESEARCH, offset=(20, 20), interval=3):
+                self.device.click(BEGIN_RESEARCH)
+                timeout.reset()
+                continue
+            # Quick Train only shows for the skill being researched
+            if self.appear(QUICK_TRAIN, offset=(20, 20)):
+                logger.info(f'Skill card {index + 1}: researching')
+                return True
+
+    def tactics_all_maxed(self, start_research=False, allow_learn=False):
+        """
+        Audit of the three skill cards on the Tactical Training screen.
+        Nothing is fed here.
+
+        Args:
+            start_research (bool): When the ship's single research slot is
+                idle (its previous skill maxed out, or no skill was ever
+                started), put it on the next unfinished skill. Without this
+                the audit is purely read-only and a ship whose researching
+                skill maxed just stops making progress.
+            allow_learn (bool): Also learn a not-yet-learned skill to start
+                it, spending 5 red T3 skill books. Idle learned skills are
+                always preferred - they are free.
 
         Returns:
             str: 'maxed'    every slot is maxed (empty slots ignored)
@@ -813,31 +892,57 @@ class MetaLab(Dock):
         """
         self.device.screenshot()
         states = self.read_tactics_states()
-        if any(state in ('trainable', 'researching') for state in states):
-            logger.info('Skills not maxed: a card is trainable or researching')
+        if 'researching' in states:
+            # The one research slot is busy, there is nothing to start
+            logger.info('Skills not maxed: a card is researching')
+            return 'unmaxed'
+        if not start_research and 'trainable' in states:
+            logger.info('Skills not maxed: a card is trainable')
             return 'unmaxed'
 
         results = []
         for index in range(len(TACTICS_SKILL_CARDS)):
             result = self.inspect_skill_card(index)
             logger.info(f'Skill card {index + 1}: {result}')
-            if result == 'unmaxed':
+            if result == 'researching':
+                # Research slot busy: the ship progresses on her own
+                return 'unmaxed'
+            if result in ('idle', 'trainable') and not start_research:
                 return 'unmaxed'
             results.append(result)
-        if 'maxed' not in results:
+        if 'maxed' not in results and 'idle' not in results \
+                and 'trainable' not in results:
             # Every card read 'empty': the screen never rendered what it
             # was supposed to - do not call that a maxed ship
             logger.warning(f'Skill states inconclusive: {results}')
             return 'unknown'
-        logger.info(f'All skills maxed: {results}')
-        return 'maxed'
+        if all(state in ('maxed', 'empty') for state in results):
+            logger.info(f'All skills maxed: {results}')
+            return 'maxed'
 
-    def check_skills_maxed(self):
+        # Nothing is researching but something can be: the slot is idle
+        if start_research:
+            wanted = ['idle', 'trainable'] if allow_learn else ['idle']
+            for state in wanted:
+                if state not in results:
+                    continue
+                index = results.index(state)
+                logger.info(f'No skill is researching, starting the {state} '
+                            f'skill on card {index + 1}')
+                self.start_skill_research(index, allow_learn=allow_learn)
+                break
+            else:
+                logger.info(f'No skill is researching and none can be started: '
+                            f'{results}')
+        return 'unmaxed'
+
+    def check_skills_maxed(self, start_research=False, allow_learn=False):
         """
-        Read-only skill audit of the ship currently on the detail page:
-        open her META Lab, look at the skill cards, back out again. Used by
-        MetaLeveling to hold a level-finished ship in the fleet until her
-        skills are done.
+        Skill audit of the ship currently on the detail page: open her META
+        Lab, look at the skill cards, back out again. Used by MetaLeveling
+        to hold a level-finished ship in the fleet until her skills are
+        done - and, with `start_research`, to keep her research slot on an
+        unfinished skill meanwhile (see tactics_all_maxed).
 
         Returns:
             str: 'maxed', 'unmaxed' or 'unknown' (lab or tactics screen did
@@ -853,7 +958,8 @@ class MetaLab(Dock):
             return 'unknown'
 
         if self.hub_goto(HUB_RESEARCH, TACTICS_CHECK):
-            result = self.tactics_all_maxed()
+            result = self.tactics_all_maxed(start_research=start_research,
+                                            allow_learn=allow_learn)
             self.subscreen_back_to_hub()
         else:
             logger.warning('Tactical Research did not open, skill state unknown')

@@ -46,10 +46,13 @@ class MetaLeveling(CampaignRun, MetaLab):
     for level EXP (which also feeds the daily skill missions), and swaps a
     ship out for a lower-level META once she reaches TargetLevel.
 
-    MetaLab is inherited for its read-only lab navigation and skill reading
+    MetaLab is inherited for its lab navigation and skill reading
     (check_skills_maxed): a ship that reached TargetLevel is only swapped
-    out once her skills are maxed as well. Only config-free MetaLab helpers
-    may be used here - this task has no MetaLab_* config keys.
+    out once her skills are maxed as well, and while she waits her research
+    slot is kept on an unfinished skill (skill EXP comes from the account
+    wide missions this farming generates, so an idle slot wastes it). Only
+    config-free MetaLab helpers may be used here - this task has no
+    MetaLab_* config keys; book feeding stays MetaLab's job.
     """
 
     # Set when neither the fleet nor the dock has a META ship below
@@ -162,8 +165,13 @@ class MetaLeveling(CampaignRun, MetaLab):
     def inspect_slot(self, slot, button):
         """
         Long-click a fleet slot, read the ship's level on her detail page
-        (and her skill levels once she is level-finished), return to the
-        formation page.
+        (and her skill levels), return to the formation page.
+
+        With ActivateSkills on, every inspected ship also gets her research
+        slot checked: a META ship has ONE, and when the skill it sat on
+        maxed out it falls idle - the account-wide skill EXP the farming
+        generates then goes nowhere. The next unfinished skill is started
+        (learning it if needed); feeding books stays MetaLab's job.
 
         Returns:
             str: 'leveled'         at or above TargetLevel and skills done,
@@ -184,15 +192,22 @@ class MetaLeveling(CampaignRun, MetaLab):
         level = self.get_detail_level()
         logger.info(f'Slot {slot}: level {level}')
 
+        manage_skills = bool(self.config.MetaLeveling_ActivateSkills)
+
         if level == 0:
             status = 'unknown'
         elif level < self.target_level:
             status = 'in_progress'
+            if manage_skills:
+                # She stays in the fleet a while longer, so keep her
+                # research slot busy while she levels
+                self.check_skills_maxed(start_research=True, allow_learn=True)
         elif not self.require_max_skills:
             status = 'leveled'
         else:
             # Level-finished: the skills decide whether she leaves the fleet
-            skills = self.check_skills_maxed()
+            skills = self.check_skills_maxed(start_research=manage_skills,
+                                             allow_learn=manage_skills)
             if skills == 'unmaxed':
                 logger.info(f'Slot {slot}: level {level} reached but skills are not '
                             'maxed yet, keeping her until MetaLab finishes them')
