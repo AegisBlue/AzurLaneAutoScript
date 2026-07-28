@@ -1,12 +1,15 @@
 import re
 
-from module.base.button import Button
+import numpy as np
+
+import module.config.server as server
+from module.base.button import Button, ButtonGrid
 from module.base.timer import Timer
 from module.logger import logger
 from module.meta_leveling.assets import *
 from module.ocr.ocr import Digit, DigitCounter, Ocr
 from module.retire.assets import DOCK_CHECK, DOCK_EMPTY, SHIP_DETAIL_CHECK
-from module.retire.dock import CARD_GRIDS, CARD_LEVEL_GRIDS, DOCK_SCROLL, Dock
+from module.retire.dock import CARD_GRIDS, DOCK_SCROLL, Dock
 from module.ui.assets import BACK_ARROW
 from module.ui.page import page_dock
 
@@ -102,6 +105,39 @@ HUB_ACTIVATION_BADGE = (195, 195, 265, 265)
 HUB_FORTIFY_BADGE = (1010, 175, 1085, 240)
 # State tag under TACTICAL RESEARCH
 HUB_RESEARCH_TAG = (1170, 395, 1270, 425)
+
+# --- dock sweep geometry ---
+# The dock draws 3 rows of 7 cards, but upstream's shared CARD_GRIDS covers
+# only the top 2 (grid_shape=(7, 2) in module/retire/dock.py). Reading 14
+# cards while paging the list by a full viewport skipped the whole third row
+# every page: the 2026-07-28 03:12 run visited 17 ships out of ~42 METAs in
+# the dock. These grids mirror CARD_GRIDS' measurements - taken from its own
+# attributes so upstream tweaks carry over - and add the missing row. Row 3's
+# buttons run past the bottom of a 720px frame; only their centre is ever
+# clicked, and the level badge the presence check reads sits at y 535-557,
+# well inside it.
+LAB_CARD_GRIDS = ButtonGrid(
+    origin=tuple(CARD_GRIDS.origin), delta=tuple(CARD_GRIDS.delta),
+    button_shape=tuple(CARD_GRIDS.button_shape),
+    grid_shape=(CARD_GRIDS.grid_shape[0], 3), name='LAB_CARD')
+if server.server != 'jp':
+    LAB_CARD_LEVEL_GRIDS = LAB_CARD_GRIDS.crop(area=(77, 5, 138, 27), name='LAB_LEVEL')
+else:
+    LAB_CARD_LEVEL_GRIDS = LAB_CARD_GRIDS.crop(area=(74, 5, 136, 27), name='LAB_LEVEL')
+
+# Paging by dragging whole card rows, mirroring ShipCensus' grid sweep:
+# device.drag holds at the end of the stroke, so the list stops where it is
+# put instead of flinging on, at one row per LAB_CARD_ROW_PITCH px.
+# DOCK_SCROLL.next_page() is NOT usable here - it moves 0.8 of a viewport
+# (2.4 rows), which cannot line up with the 3 rows this sweep reads.
+LAB_CARD_ROW_PITCH = 227
+LAB_DRAG_X = 640
+LAB_DRAG_Y = 620
+# Longest stroke that still starts and ends inside the card area
+LAB_DRAG_ROWS_MAX = 2
+# Sweep bounds. The roster is ~42 METAs; both are runaway brakes, not budgets.
+LAB_SWEEP_SHIP_CAP = 80
+LAB_SWEEP_PAGE_CAP = 8
 
 SKILL_MAX_LEVEL = 10
 # EXP one T1 META Universal Skill Book gives. Used until the task has
@@ -1294,7 +1330,7 @@ class MetaLab(Dock):
         strip - the dock background is blurred scenery, so flat-color empty
         checks fail there.
         """
-        return self.image_color_count(CARD_LEVEL_GRIDS.buttons[index],
+        return self.image_color_count(LAB_CARD_LEVEL_GRIDS.buttons[index],
                                       color=(255, 255, 255), threshold=221, count=10)
 
     def dock_card_present_settled(self, index):
@@ -1310,6 +1346,26 @@ class MetaLab(Dock):
         self.device.sleep((1.0, 1.4))
         self.device.screenshot()
         return self.dock_card_present(index)
+
+    def dock_drag_rows(self, rows):
+        """
+        Move the dock down by `rows` whole card rows.
+
+        Split into strokes of at most LAB_DRAG_ROWS_MAX rows - a single
+        3-row stroke would have to start below the card area to finish
+        above the top of the screen.
+        """
+        logger.info(f'Dock drag {rows} rows')
+        while rows > 0:
+            step = min(rows, LAB_DRAG_ROWS_MAX)
+            start = np.array([LAB_DRAG_X, LAB_DRAG_Y])
+            self.device.drag(start, start - np.array([0, LAB_CARD_ROW_PITCH * step]),
+                             point_random=(-5, -5, 5, 5))
+            # Dozens of consecutive drags are legitimate here; without this
+            # the 12-same-button safety raises GameTooManyClickError
+            self.device.click_record_clear()
+            self.device.sleep((0.9, 1.3))
+            rows -= step
 
     def dock_enter_card(self, button):
         """
@@ -1347,34 +1403,51 @@ class MetaLab(Dock):
             if self.appear(DOCK_EMPTY, offset=(20, 20)):
                 logger.info('No META ships in dock')
                 break
-            page_full = True
-            for index in range(len(CARD_GRIDS.buttons)):
+            page_seen = 0
+            for index in range(len(LAB_CARD_GRIDS.buttons)):
                 self.device.screenshot()
                 if not self.dock_card_present_settled(index):
-                    logger.info(f'Dock card {index + 1} empty, end of ship list')
-                    page_full = False
-                    break
-                self.dock_enter_card(CARD_GRIDS.buttons[index])
+                    # A card that reads absent is a hole in the page, not
+                    # the end of the roster. Ending the sweep on the first
+                    # one cost the 2026-07-28 run 25 ships: it stopped at
+                    # "Dock card 4 empty" with half the dock still below.
+                    # An entirely empty page is the honest stop signal.
+                    # Holes are also how a card whose Lv badge is covered
+                    # (a celebration toast can sit over one for a whole
+                    # session) drops out - logged so a ship that silently
+                    # goes unprocessed is visible in the run log.
+                    logger.info(f'Dock card {index + 1} not readable, skipped')
+                    continue
+                self.dock_enter_card(LAB_CARD_GRIDS.buttons[index])
                 self.process_ship()
                 processed += 1
+                page_seen += 1
                 self.device.click_record_clear()
                 self.lb_exit_to_dock()
-                if processed >= 60:
-                    logger.warning('MetaLab safety limit reached')
-                    page_full = False
+                if processed >= LAB_SWEEP_SHIP_CAP:
                     break
             pages += 1
-            # Page cap: if returning from a ship detail resets the dock
-            # scroll, later pages would repeat the same cards - bound it.
-            if not page_full or pages >= 3:
+            logger.info(f'Dock page {pages}: {page_seen} ships ({processed} total)')
+            if not page_seen:
+                logger.info('Empty dock page, end of ship list')
                 break
-            if not DOCK_SCROLL.appear(main=self) or DOCK_SCROLL.at_bottom(main=self):
+            if processed >= LAB_SWEEP_SHIP_CAP:
+                logger.warning('MetaLab ship limit reached')
+                break
+            if pages >= LAB_SWEEP_PAGE_CAP:
+                logger.warning('MetaLab page limit reached')
+                break
+            self.device.screenshot()
+            if DOCK_SCROLL.appear(main=self) and DOCK_SCROLL.at_bottom(main=self):
                 logger.info('End of dock, no further pages')
                 break
-            DOCK_SCROLL.next_page(main=self)
-            # The fling keeps gliding after the scroll call returns - let
-            # the list settle before the first card presence check.
-            self.device.sleep((1.0, 1.4))
+            # Advance by exactly the rows just read, so no card falls
+            # between two pages. A final page shorter than a full viewport
+            # clamps at the bottom and repeats a few ships instead of
+            # skipping them - a re-visit finds the research already running
+            # and the badges cleared, so it costs seconds and changes
+            # nothing.
+            self.dock_drag_rows(int(LAB_CARD_GRIDS.grid_shape[1]))
         logger.info(f'META Lab pass processed {processed} ships')
 
         logger.hr('META Lab pass exit', level=1)
