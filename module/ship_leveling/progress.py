@@ -81,9 +81,10 @@ def lb_stage(ship):
     return stage if 0 <= stage <= 3 else None
 
 
-def level_cap(ship, target):
+def level_cap(ship, target, meta_target=None):
     """
-    Highest level this ship can actually reach right now, never above `target`.
+    Highest level this ship can actually reach right now, never above the
+    target that applies to her.
 
     Returning the *reachable* ceiling rather than the configured target is what
     keeps the task from parking a ship who physically cannot gain another point
@@ -91,13 +92,16 @@ def level_cap(ship, target):
 
     Args:
         ship (dict): Census record.
-        target (int): Configured TargetLevel.
+        target (int): Configured TargetLevel, for ordinary ships.
+        meta_target (int): Configured MetaTargetLevel. METAs get their own
+            because the two want very different numbers - see the module
+            docstring in ship_leveling.py.
 
     Returns:
         int:
     """
     if ship.get('is_meta'):
-        return min(target, META_CAP)
+        return min(meta_target if meta_target else target, META_CAP)
     if ship.get('cognition_awakened'):
         return min(target, AWAKEN_CAP)
     stage = lb_stage(ship)
@@ -116,7 +120,7 @@ def level_cap(ship, target):
     return min(target, cap)
 
 
-def judge(ship, target=120):
+def judge(ship, target=120, meta_target=None):
     """
     One criterion -> (state, text), state in 'done' / 'pending' / 'na' /
     'unknown'. Port of the dashboard's judge(); keep the two in step.
@@ -124,7 +128,7 @@ def judge(ship, target=120):
     Returns:
         dict[str, (str, str)]:
     """
-    cap = level_cap(ship, target)
+    cap = level_cap(ship, target, meta_target)
     out = {}
 
     level = ship.get('level')
@@ -158,14 +162,14 @@ def judge(ship, target=120):
     return out
 
 
-def summarize(ship, target=120):
+def summarize(ship, target=120, meta_target=None):
     """
     Roll the criteria up the way the dashboard's summarize() does.
 
     Returns:
         dict: crit, done, applicable, unknown, missing, progress, complete
     """
-    crit = judge(ship, target)
+    crit = judge(ship, target, meta_target)
     done = applicable = unknown = 0
     missing = []
     for key, (state, _) in crit.items():
@@ -186,7 +190,7 @@ def summarize(ship, target=120):
 
 # ---------------- what farming can still fix ----------------
 
-def wants_level(ship, target):
+def wants_level(ship, target, meta_target=None):
     """
     Whether carrying this ship through a stage would earn her anything.
 
@@ -199,7 +203,7 @@ def wants_level(ship, target):
     level = ship.get('level')
     if level is None:
         return False
-    return level < level_cap(ship, target)
+    return level < level_cap(ship, target, meta_target)
 
 
 def wants_affinity(ship):
@@ -215,11 +219,12 @@ def wants_affinity(ship):
     return affinity < 100
 
 
-def farm_work_left(ships, target):
+def farm_work_left(ships, target, meta_target=None):
     """
     Args:
         ships (iterable[dict]): Census records.
         target (int): TargetLevel.
+        meta_target (int): MetaTargetLevel.
 
     Returns:
         (int, int): How many ships still want levels, and how many still want
@@ -228,7 +233,7 @@ def farm_work_left(ships, target):
     """
     levels = affinities = 0
     for ship in ships:
-        if wants_level(ship, target):
+        if wants_level(ship, target, meta_target):
             levels += 1
         if wants_affinity(ship):
             affinities += 1
@@ -296,12 +301,19 @@ class SlotState:
     def clear(self, slot):
         self.slots.pop(slot, None)
 
-    def note(self, slot, name, hp, level, key=None, kind=None):
+    def note(self, slot, name, hp, level, key=None, kind=None, count_stall=True):
         """
         Record who is standing in `slot` and count level stalls.
 
         The stall counter only survives while the same ship keeps standing
         there: a different name or hull, or any level gain, resets it.
+
+        Args:
+            count_stall (bool): False when no battles were fought since the last
+                look. A ship who was never given the chance to gain a level has
+                not stalled, and two maintenance passes back to back - which is
+                what happens whenever the campaign stops early for emotion
+                recovery - would otherwise convict her of sitting at a ceiling.
 
         Returns:
             dict: The slot record, including 'stalls'.
@@ -311,7 +323,7 @@ class SlotState:
         gained = level is not None and prior.get('level') is not None \
             and level > prior['level']
         if same and not gained and level is not None and prior.get('level') == level:
-            stalls = int(prior.get('stalls') or 0) + 1
+            stalls = int(prior.get('stalls') or 0) + (1 if count_stall else 0)
         else:
             stalls = 0
         record = dict(name=name, hp=hp, level=level, key=key, kind=kind,

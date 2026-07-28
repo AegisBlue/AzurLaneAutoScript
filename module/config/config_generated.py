@@ -172,6 +172,7 @@ class GeneratedConfig:
     # Group `ShipLeveling`
     ShipLeveling_CheckInterval = 10
     ShipLeveling_TargetLevel = 120
+    ShipLeveling_MetaTargetLevel = 100
     ShipLeveling_HealerSlot = 'main_2'  # none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3
     ShipLeveling_ClearerSlot = 'vanguard_1'  # none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3
     ShipLeveling_MetaMinSwapLevel = 70

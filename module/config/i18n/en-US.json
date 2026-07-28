@@ -1342,7 +1342,11 @@
     },
     "TargetLevel": {
       "name": "Target Level",
-      "help": "A ship counts as finished at this level. A ship who cannot reach it - because her limit break or Cognitive Awakening caps her lower - is swapped out at her own ceiling instead. META ships cap at 120."
+      "help": "An ordinary ship counts as finished at this level. A ship who cannot reach it - because her limit break or Cognitive Awakening caps her lower - is swapped out at her own ceiling instead. Set this above the levels your part-finished ships sit at, or the task will find no candidates: only ships strictly below it are picked up."
+    },
+    "MetaTargetLevel": {
+      "name": "META Target Level",
+      "help": "META ships count as finished at this level, separately from Target Level. They normally want a much lower number: past 100 a META needs tens of thousands of EXP per level, so a shared target would hold her in the fleet for weeks while ordinary ships wait. METAs cap at 120 whatever is set here."
     },
     "HealerSlot": {
       "name": "Healer Slot",

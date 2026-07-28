@@ -9,14 +9,20 @@ levelling somebody else.
 
 So this task levels, and only levels:
 
-1. META ships first, up to TargetLevel. As soon as one arrives, her research
-   slot is pointed at an unfinished skill (the same care MetaLeveling took)
-   and she is swapped straight out - no waiting on skills.
-2. Then regular ships that still have something to gain, highest level first,
-   sourced from the dock's own "not level max" filter and cross-checked
-   against the ShipCensus store.
+1. META ships first, up to MetaTargetLevel. As soon as one arrives, her
+   research slot is pointed at an unfinished skill (the same care MetaLeveling
+   took) and she is swapped straight out - no waiting on skills.
+2. Then regular ships that still have something to gain, up to TargetLevel and
+   highest level first, sourced from the dock's own "not level max" filter and
+   cross-checked against the ShipCensus store.
 3. Then, when nobody on record still wants levels, the lowest-affinity ships
    are rotated through the fleet for the affinity endgame.
+
+METAs and ordinary ships get separate targets because one number cannot serve
+both: past 100 a META needs tens of thousands of EXP for a single level, while
+the ordinary ships worth picking up on this account sit between 100 and 120.
+A shared target either parks METAs in the fleet for weeks or leaves the regular
+rung with nobody to offer.
 
 Everything the maintenance pass reads about a ship is written back into
 config/ship_census.json, so the census dashboard stays current between sweeps.
@@ -30,12 +36,21 @@ from module.base.decorator import cached_property
 from module.logger import logger
 from module.meta_leveling.meta_leveling import SLOT_BUTTONS, MetaLeveling
 from module.retire.assets import DOCK_CHECK, DOCK_EMPTY
+from module.retire.dock import DOCK_SCROLL, OCR_DOCK_SELECTED
 from module.retire.scanner import ShipScanner
 from module.ship_census.census import ShipCensus
 from module.ship_census.store import CensusStore
 from module.ship_leveling import progress
 from module.ship_leveling.dorm_sync import DormRoster
 from module.ui.page import page_fleet
+
+# Picker pages walked looking for the level band. Sorted descending, the front
+# of the list is everyone above TargetLevel, so the band this task wants can be
+# several pages down.
+CANDIDATE_PAGES = 8
+# Cards tried per rung before giving up on it. A card can refuse the selection
+# ("In action"), and the next best is usually just as good.
+CANDIDATE_TRIES = 4
 
 
 class ShipLeveling(MetaLeveling, DormRoster):
@@ -48,12 +63,30 @@ class ShipLeveling(MetaLeveling, DormRoster):
     # Which rung of the candidate ladder the last swap reached, for logging
     # and for the exhaustion check.
     _last_candidate_kind = None
+    # Whether the last batch of campaign runs actually happened. A ship can only
+    # be judged stuck at a level ceiling if she was given battles to gain one.
+    _farmed_last_batch = False
 
     # ---------------------------------------------------------------- config
 
     @property
     def target_level(self):
         return int(self.config.ShipLeveling_TargetLevel)
+
+    @property
+    def meta_target_level(self):
+        """
+        METAs get their own target, and it is normally much lower.
+
+        One number cannot serve both. Live on this account: with a single
+        target of 100 the vanguard picker had nobody at all in the 70-99 band -
+        every vanguard who can still gain EXP is either above 100 or under 45 -
+        so the regular rung came up empty every pass. Raising the target to 120
+        fills it (117, 114, 113, 110 sit on the first page), but the same
+        number would then hold METAs in the fleet for the 100 -> 120 climb,
+        which costs 87k EXP for a single level and blocks the slot for weeks.
+        """
+        return int(self.config.ShipLeveling_MetaTargetLevel)
 
     @property
     def min_swap_level(self):
@@ -203,7 +236,8 @@ class ShipLeveling(MetaLeveling, DormRoster):
         Returns:
             (int, int): ships wanting levels, ships wanting affinity.
         """
-        return progress.farm_work_left(self.store.ships.values(), self.target_level)
+        return progress.farm_work_left(self.store.ships.values(), self.target_level,
+                                       self.meta_target_level)
 
     # ------------------------------------------------------------ inspection
 
@@ -235,17 +269,18 @@ class ShipLeveling(MetaLeveling, DormRoster):
         level, name = detail['level'], detail['name']
         key, ship = self.record_detail(detail)
         kind = 'meta' if detail['is_meta'] else 'regular'
-        record = self.state.note(slot, name, detail['hp'], level, key=key, kind=kind)
+        record = self.state.note(slot, name, detail['hp'], level, key=key, kind=kind,
+                                 count_stall=self._farmed_last_batch)
         self.state.save()
 
-        cap = progress.level_cap(ship, self.target_level) if ship else self.target_level
+        cap = progress.level_cap(ship, self.target_level, self.meta_target_level)             if ship else self.target_level
         logger.info('Slot {}: {!r} ({}) Lv.{}/{}, stalls {}'.format(
             slot, name, kind, level, cap, record['stalls']))
 
         if level is None:
             status = 'unknown'
         elif detail['is_meta']:
-            # cap is min(TargetLevel, 120) here - a META cannot go past 120
+            # cap is min(MetaTargetLevel, 120) here - a META cannot go past 120
             # however high the target is set
             if level < cap:
                 status = 'in_progress'
@@ -278,84 +313,217 @@ class ShipLeveling(MetaLeveling, DormRoster):
 
     # ------------------------------------------------------------ candidates
 
-    def get_regular_candidate(self):
+    def get_meta_candidates(self):
         """
-        On the deploy picker, the highest-level free regular ship who can still
-        gain EXP.
+        Free META ships below TargetLevel but at or above MetaMinSwapLevel,
+        best first. Ships below the floor belong to ExpFeed's pack feeding.
 
-        The dock's own "not level max" filter is the authority on that - it
-        knows about limit-break walls and awakening steps the census cannot
-        see. Descending level sort then puts the best candidates on the first
-        page, which is the only page a ShipScanner can read.
+        The list version of MetaLeveling.get_meta_candidate, so a card that
+        refuses the selection does not end the swap. Only the first page is
+        scanned: METAs are few and the descending sort puts the finished ones
+        first, with the candidates right behind them.
+
+        Also sets _unfinished_below_min - whether unfinished METAs exist below
+        the floor, checked with an ascending re-sort so the low-level tail lands
+        on the first page.
+
+        Returns:
+            list[Ship]:
+
+        Pages:
+            in: DOCK_CHECK
+        """
+        self._unfinished_below_min = False
+        self.dock_favourite_set(False, wait_loading=False)
+        self.dock_sort_method_dsc_set(True, wait_loading=False)
+        self.dock_filter_set(faction='meta')
+
+        if self.appear(DOCK_EMPTY, offset=(20, 20)):
+            logger.info('No META ship in the deploy picker')
+            return []
+
+        ships = self.scan_picker()
+        ranked = self.rank_candidates(ships, self.min_swap_level,
+                                      self.meta_target_level - 1)
+        if ranked:
+            return ranked
+
+        logger.info('No free META ship in level range {}-{}'.format(
+            self.min_swap_level, self.meta_target_level - 1))
+        # Pipeline check: do unfinished METAs exist below the floor? Flip to
+        # ascending so the lowest ships are on the first page.
+        self.dock_sort_method_dsc_set(False, wait_loading=True)
+        self.device.screenshot()
+        remain = self.rank_candidates(self.scan_picker(), 1, self.meta_target_level - 1)
+        self._unfinished_below_min = bool(remain)
+        if self._unfinished_below_min:
+            logger.info('Unfinished META ships exist below MetaMinSwapLevel, '
+                        'waiting for ExpFeed to level them up')
+        return []
+
+    def scan_picker(self):
+        """
+        Every card on the deploy picker's current page, unfiltered.
+
+        The scanner's own level/fleet limits are applied afterwards instead of
+        inside it, because the paging in get_regular_candidates has to see the
+        levels it is scrolling past to know when to stop.
+
+        Returns:
+            list[Ship]:
+        """
+        scanner = ShipScanner(level=(1, 125), emotion=(0, 150),
+                              fleet=[0, 1, 2, 3, 4, 5, 6], status='any')
+        scanner.disable('rarity')
+        return scanner.scan(self.device.image, output=False)
+
+    @staticmethod
+    def rank_candidates(ships, low, high):
+        """Free, unfleeted ships in the level band, best first."""
+        pool = [ship for ship in ships
+                if ship.fleet == 0 and ship.status == 'free'
+                and low <= ship.level <= high]
+        # Highest level first; on equal level prefer the higher emotion
+        return sorted(pool, key=lambda ship: (ship.level, ship.emotion), reverse=True)
+
+    def get_regular_candidates(self):
+        """
+        Free regular ships who can still gain EXP, best first.
+
+        The dock's own "not level max" filter is the authority on "can still
+        gain EXP" - live, it excludes a Lv.125 ship, excludes a Lv.70 ship at
+        zero limit breaks, and offers a Lv.70 ship who is max limit broken. The
+        census cannot make that last distinction.
+
+        The list has to be PAGED, which the first version of this did not do.
+        Sorted by level descending, the front of the picker is the ships above
+        TargetLevel - the awakened ones still climbing to 125 - and the band
+        this task wants starts pages further down. Live, scanning only the first
+        page found nothing in 70-99 and dropped through to the affinity
+        rotation, which put a Lv.1 ship into the fleet.
 
         The picker is opened from a fleet slot, so it is already restricted to
         hulls that fit the slot (main slots show main ships only).
 
         Returns:
-            Ship: from module.retire.scanner, or None.
+            list[Ship]:
 
         Pages:
             in: DOCK_CHECK
         """
+        low, high = self.regular_min_level, self.target_level - 1
         self.dock_favourite_set(False, wait_loading=False)
         self.dock_sort_method_dsc_set(True, wait_loading=False)
         self.dock_filter_set(sort='level', extra='not_level_max')
 
         if self.appear(DOCK_EMPTY, offset=(20, 20)):
             logger.info('No levellable ship in the deploy picker')
-            return None
+            return []
 
-        scanner = ShipScanner(level=(self.regular_min_level, self.target_level - 1),
-                              emotion=(0, 150), fleet=0, status='free')
-        scanner.disable('rarity')
-        ships = scanner.scan(self.device.image, output=True)
-        if ships:
-            # Highest level first; on equal level prefer the higher emotion
-            return max(ships, key=lambda ship: (ship.level, ship.emotion))
+        for page in range(CANDIDATE_PAGES):
+            ships = self.scan_picker()
+            ranked = self.rank_candidates(ships, low, high)
+            levels = [ship.level for ship in ships if ship.level]
+            logger.info('Picker page {}: levels {}'.format(
+                page + 1, sorted(levels, reverse=True)))
+            if ranked:
+                logger.info('Levellable candidates: {}'.format(
+                    [ship.level for ship in ranked[:5]]))
+                return ranked
+            if levels and min(levels) < low:
+                # Sorted descending, so the band is behind us now
+                break
+            if not DOCK_SCROLL.appear(main=self) or DOCK_SCROLL.at_bottom(main=self):
+                break
+            DOCK_SCROLL.next_page(main=self, page=0.6)
+            self.device.sleep((0.5, 0.8))
+            self.device.screenshot()
 
-        logger.info('No free levellable ship in level range {}-{}'.format(
-            self.regular_min_level, self.target_level - 1))
-        return None
+        logger.info('No free levellable ship in level range {}-{}'.format(low, high))
+        return []
 
-    def get_affinity_candidate(self):
+    def get_affinity_candidates(self):
         """
         The affinity endgame: when nobody is short of levels any more, carry
         the ships who are short of Love instead.
 
-        Affinity is not readable on a dock card, so this leans on the game's
-        own intimacy sort - ascending, so the least-loved ships are the front
-        cards - and lets the census delta sweeps measure the progress. Ships
-        already in a fleet are excluded by the scanner, so filling several
-        slots in one pass walks down the list instead of picking the same ship
-        again.
+        Gated on the census saying so. Without that gate this rung fires
+        whenever the level rungs happen to come up empty on a picker page, and
+        it is not choosy - live, it put a Lv.1 ship into the fleet while 400+
+        ships on record still wanted levels.
+
+        Affinity is not readable on a dock card, so this leans on the game's own
+        intimacy sort - ascending, so the least-loved ships are the front cards
+        - and lets the census delta sweeps measure the progress. Ships already
+        in a fleet are excluded, so filling several slots in one pass walks down
+        the list instead of picking the same ship again.
 
         Returns:
-            Ship: or None.
+            list[Ship]:
 
         Pages:
             in: DOCK_CHECK
         """
+        if not self.store.ships:
+            logger.info('No census on record, so there is no way to tell that levelling '
+                        'is finished - not starting the affinity rotation')
+            return []
+        levels, affinities = self.farm_work_left()
+        if levels:
+            logger.info('{} ships on record still want levels, so the affinity rotation '
+                        'stays shut'.format(levels))
+            return []
+        if not affinities:
+            return []
+
         self.dock_favourite_set(False, wait_loading=False)
         self.dock_sort_method_dsc_set(False, wait_loading=False)
         self.dock_filter_set(sort='intimacy', extra='no_limit')
 
         if self.appear(DOCK_EMPTY, offset=(20, 20)):
-            return None
+            return []
 
-        scanner = ShipScanner(level=(1, 125), emotion=(0, 150), fleet=0, status='free')
-        scanner.disable('rarity')
-        ships = scanner.scan(self.device.image, output=True)
+        # Grid order, so the front cards are the least loved the picker offers
+        ships = [ship for ship in self.scan_picker()
+                 if ship.fleet == 0 and ship.status == 'free' and ship.level]
         if not ships:
             logger.info('No free ship on the intimacy-sorted first page')
-            return None
-        # Grid order, so the first card is the least loved ship the picker offers
-        return ships[0]
+        return ships
+
+    def dock_try_select(self, button, tries=3):
+        """
+        Tap a card in the deploy picker and check the counter actually moved.
+
+        Some cards cannot be taken however often they are tapped - live, META
+        ships marked "In action" (a state the stock StatusScanner has no EN
+        template for) read as free, and the stock dock_select_one clicked one
+        until ALAS raised GameTooManyClickError and the run died. The counter
+        settles it without needing to know why a card refuses.
+
+        Returns:
+            bool: True if the picker now holds a selection.
+        """
+        for _ in range(tries):
+            self.device.click(button)
+            self.device.sleep((0.9, 1.3))
+            self.device.click_record_clear()
+            self.device.screenshot()
+            if self.handle_popup_confirm('SHIP_LEVELING_SELECT'):
+                continue
+            current, _, total = OCR_DOCK_SELECTED.ocr(self.device.image)
+            if total == 1 and current >= 1:
+                return True
+        return False
 
     def swap_slot(self, slot, button):
         """
         Plain-click a fleet slot to open the deploy picker and put the best
-        available replacement into it - METAs first, then regular ships who
-        can still level, then the affinity rotation.
+        available replacement into it - METAs first, then regular ships who can
+        still level, then the affinity rotation.
+
+        Each rung offers a ranked list rather than one ship, because a card can
+        turn out to be untakeable (see dock_try_select) and the run should move
+        on to the next best rather than die on it.
 
         Returns:
             str: 'swapped' or 'no_candidate'
@@ -368,30 +536,29 @@ class ShipLeveling(MetaLeveling, DormRoster):
         self.ship_info_enter(button, check_button=DOCK_CHECK,
                              long_click=False, skip_first_screenshot=False)
 
-        kind = 'meta'
-        candidate = self.get_meta_candidate()
-        if candidate is None:
-            kind = 'regular'
-            candidate = self.get_regular_candidate()
-        if candidate is None:
-            kind = 'affinity'
-            candidate = self.get_affinity_candidate()
-        if candidate is None:
-            self._last_candidate_kind = None
-            self.dock_reset()
-            self.ui_back(check_button=page_fleet.check_button)
-            return 'no_candidate'
+        for kind, getter in (('meta', self.get_meta_candidates),
+                             ('regular', self.get_regular_candidates),
+                             ('affinity', self.get_affinity_candidates)):
+            for candidate in getter()[:CANDIDATE_TRIES]:
+                logger.info('Swap in {} ship: level {}, emotion {}'.format(
+                    kind, candidate.level, candidate.emotion))
+                if not self.dock_try_select(candidate.button):
+                    logger.warning('{} would not take the selection (in action, or '
+                                   'already deployed) - trying the next'.format(
+                                       candidate.button.name))
+                    continue
+                self._last_candidate_kind = kind
+                self.dock_reset()
+                self.dock_select_confirm(check_button=page_fleet.check_button)
+                self.record_fleet_emotion(candidate.emotion)
+                self.state.clear(slot)
+                self.state.save()
+                return 'swapped'
 
-        self._last_candidate_kind = kind
-        logger.info('Swap in {} ship: level {}, emotion {}'.format(
-            kind, candidate.level, candidate.emotion))
-        self.dock_select_one(candidate.button)
+        self._last_candidate_kind = None
         self.dock_reset()
-        self.dock_select_confirm(check_button=page_fleet.check_button)
-        self.record_fleet_emotion(candidate.emotion)
-        self.state.clear(slot)
-        self.state.save()
-        return 'swapped'
+        self.ui_back(check_button=page_fleet.check_button)
+        return 'no_candidate'
 
     def identify_slot(self, slot, button):
         """
@@ -608,6 +775,7 @@ class ShipLeveling(MetaLeveling, DormRoster):
             logger.hr('Farm {} runs until the next fleet check'.format(batch), level=1)
             super(MetaLeveling, self).run(name=name, folder=folder, mode=mode, total=batch)
             farmed += self.run_count
+            self._farmed_last_batch = self.run_count > 0
 
             if self.run_count < batch:
                 # The inner loop stopped early: emotion recovery, oil limit,

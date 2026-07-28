@@ -465,6 +465,7 @@
     "ShipLeveling": {
       "CheckInterval": 10,
       "TargetLevel": 120,
+      "MetaTargetLevel": 100,
       "HealerSlot": "main_2",
       "ClearerSlot": "vanguard_1",
       "MetaMinSwapLevel": 70,

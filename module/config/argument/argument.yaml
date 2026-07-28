@@ -314,6 +314,8 @@ ShipLeveling:
     value: 10
   TargetLevel:
     value: 120
+  MetaTargetLevel:
+    value: 100
   HealerSlot:
     value: main_2
     option: [ none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3 ]

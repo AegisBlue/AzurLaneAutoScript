@@ -2458,6 +2458,10 @@
         "type": "input",
         "value": 120
       },
+      "MetaTargetLevel": {
+        "type": "input",
+        "value": 100
+      },
       "HealerSlot": {
         "type": "select",
         "value": "main_2",
