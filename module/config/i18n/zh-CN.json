@@ -66,6 +66,10 @@
       "name": "META Leveling",
       "help": "Level and max out META ships: farm a campaign stage with a META fleet, keep their skills progressing, and swap out finished ships. Custom task, not from upstream ALAS."
     },
+    "ShipLeveling": {
+      "name": "Ship Leveling",
+      "help": "Autonomous ship leveling: farm a campaign stage, level META ships to Target Level first, then every regular ship that can still gain EXP, and keep the ship census up to date on the way. Successor to META Leveling - do not enable both. Custom task, not from upstream ALAS."
+    },
     "EventGeneral": {
       "name": "活动通用设置",
       "help": ""
@@ -1325,6 +1329,62 @@
     "DoFortification": {
       "name": "Perform Rigging Fortification",
       "help": "Fortify META ship rigging when materials are available."
+    }
+  },
+  "ShipLeveling": {
+    "_info": {
+      "name": "Ship Leveling Settings",
+      "help": "Farms the configured campaign stage and keeps the fleet full of ships who still have something to gain. META ships come first and leave the moment they reach Target Level (their skill EXP comes from account-wide missions, so holding a fleet slot for skills is waste); then regular ships that are not at their level ceiling, highest level first; then, when nobody needs levels any more, the least-loved ships for the affinity endgame. Fleet 1 is ALWAYS the managed fleet - set it up once with your healer/clearer and the task handles the rest of its slots. Fleet 2 is optional and never touched. Skills, fortification and Somatic Activation stay with the META Lab task."
+    },
+    "CheckInterval": {
+      "name": "Runs Between Ship Checks",
+      "help": "Farm this many campaign runs, then re-check every managed fleet slot (level, swap-outs, census update). Lower = more responsive but more time spent outside battle."
+    },
+    "TargetLevel": {
+      "name": "Target Level",
+      "help": "A ship counts as finished at this level. A ship who cannot reach it - because her limit break or Cognitive Awakening caps her lower - is swapped out at her own ceiling instead. META ships cap at 120."
+    },
+    "HealerSlot": {
+      "name": "Healer Slot",
+      "help": "The fleet slot your healer sits in. This slot is never inspected or swapped. Set to none if the fleet has no healer.",
+      "none": "none",
+      "main_1": "Main fleet slot 1",
+      "main_2": "Main fleet slot 2 (flagship)",
+      "main_3": "Main fleet slot 3",
+      "vanguard_1": "Vanguard slot 1",
+      "vanguard_2": "Vanguard slot 2",
+      "vanguard_3": "Vanguard slot 3"
+    },
+    "ClearerSlot": {
+      "name": "Clearer Slot",
+      "help": "The fleet slot your mob-clearing carry sits in (a strong ship that does the actual killing while the passengers leech EXP). This slot is never inspected or swapped. Set to none if not used.",
+      "none": "none",
+      "main_1": "Main fleet slot 1",
+      "main_2": "Main fleet slot 2 (flagship)",
+      "main_3": "Main fleet slot 3",
+      "vanguard_1": "Vanguard slot 1",
+      "vanguard_2": "Vanguard slot 2",
+      "vanguard_3": "Vanguard slot 3"
+    },
+    "MetaMinSwapLevel": {
+      "name": "Minimum META Swap-In Level",
+      "help": "Only put META ships at or above this level into the fleet, highest level first. Ships below the floor stay in the dock for ExpFeed's pack feeding (Feed META Ships First)."
+    },
+    "RegularMinSwapLevel": {
+      "name": "Minimum Regular Swap-In Level",
+      "help": "Once no META ship is eligible, fill the fleet with regular ships at or above this level, highest level first. Only ships the game itself still counts as able to gain EXP are offered, so limit-break-walled ships are never picked."
+    },
+    "ActivateSkills": {
+      "name": "Manage META Skill Activation",
+      "help": "While a META ship is in the fleet - including on the pass that swaps her out - point her research slot at an unfinished skill, learning it if needed. Skill EXP arrives from account-wide missions whether or not she is in the fleet, so an idle research slot is the only real waste. Feeding books stays the META Lab task's job."
+    },
+    "UpdateCensus": {
+      "name": "Update Ship Census",
+      "help": "Write every ship read from a fleet slot (name, level, limit break, skills) back into config/ship_census.json, so the census dashboard stays current between full sweeps. Affinity and enhance state still need a ShipCensus run."
+    },
+    "DormSync": {
+      "name": "Sync Fleet Into Dorm",
+      "help": "Not implemented yet - the dorm's ship-management screen has not been mapped, so this only logs a warning. Leave it off. When it lands it will put the farming fleet into the dorm for 2-2.5x emotion recovery plus passive affinity and EXP."
     }
   },
   "EventGeneral": {

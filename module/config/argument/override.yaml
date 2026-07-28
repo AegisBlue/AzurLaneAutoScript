@@ -74,6 +74,15 @@ MetaLeveling:
     StageIncrease: false
     GetNewShip: false
     ReachLevel: 0
+ShipLeveling:
+  Campaign:
+    Event: campaign_main
+    Mode: normal
+  StopCondition:
+    MapAchievement: non_stop
+    StageIncrease: false
+    GetNewShip: false
+    ReachLevel: 0
 
 # ==================== Event ====================
 

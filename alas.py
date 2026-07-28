@@ -426,6 +426,11 @@ class AzurLaneAutoScript:
         from module.meta_leveling.meta_lab import MetaLab
         MetaLab(config=self.config, device=self.device).run()
 
+    def ship_leveling(self):
+        from module.ship_leveling.ship_leveling import ShipLeveling
+        ShipLeveling(config=self.config, device=self.device).run(
+            name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
+
     def daemon(self):
         from module.daemon.daemon import AzurLaneDaemon
         AzurLaneDaemon(config=self.config, device=self.device, task="Daemon").run()

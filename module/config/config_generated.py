@@ -169,6 +169,17 @@ class GeneratedConfig:
     MetaLeveling_DoLimitBreak = True
     MetaLeveling_DoFortification = True
 
+    # Group `ShipLeveling`
+    ShipLeveling_CheckInterval = 10
+    ShipLeveling_TargetLevel = 120
+    ShipLeveling_HealerSlot = 'main_2'  # none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3
+    ShipLeveling_ClearerSlot = 'vanguard_1'  # none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3
+    ShipLeveling_MetaMinSwapLevel = 70
+    ShipLeveling_RegularMinSwapLevel = 70
+    ShipLeveling_ActivateSkills = True
+    ShipLeveling_UpdateCensus = True
+    ShipLeveling_DormSync = False
+
     # Group `EventGeneral`
     EventGeneral_PtLimit = 0
     EventGeneral_TimeLimit = datetime.datetime(2020, 1, 1, 0, 0)

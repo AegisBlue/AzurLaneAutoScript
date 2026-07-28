@@ -74,6 +74,16 @@ Farm:
       - Submarine
       - Emotion
       - HpControl
+    # Custom task, not from upstream ALAS
+    ShipLeveling:
+      - Scheduler
+      - ShipLeveling
+      - Campaign
+      - StopCondition
+      - Fleet
+      - Submarine
+      - Emotion
+      - HpControl
 
 # ==================== Event ====================
 

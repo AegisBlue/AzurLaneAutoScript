@@ -309,6 +309,28 @@ MetaLeveling:
   DoFortification:
     value: true
 
+ShipLeveling:
+  CheckInterval:
+    value: 10
+  TargetLevel:
+    value: 120
+  HealerSlot:
+    value: main_2
+    option: [ none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3 ]
+  ClearerSlot:
+    value: vanguard_1
+    option: [ none, main_1, main_2, main_3, vanguard_1, vanguard_2, vanguard_3 ]
+  MetaMinSwapLevel:
+    value: 70
+  RegularMinSwapLevel:
+    value: 70
+  ActivateSkills:
+    value: true
+  UpdateCensus:
+    value: true
+  DormSync:
+    value: false
+
 # ==================== Event ====================
 
 EventGeneral:

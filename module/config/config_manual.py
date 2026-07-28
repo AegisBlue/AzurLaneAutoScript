@@ -30,6 +30,7 @@ class ManualConfig:
     > OpsiMeowfficerFarming
     > GemsFarming
     > MetaLeveling
+    > ShipLeveling
     > OpsiHazard1Leveling
     """
 
