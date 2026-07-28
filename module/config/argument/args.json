@@ -2502,7 +2502,7 @@
       },
       "DormSync": {
         "type": "checkbox",
-        "value": false
+        "value": true
       }
     },
     "Campaign": {

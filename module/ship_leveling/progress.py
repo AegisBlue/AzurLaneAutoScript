@@ -25,14 +25,22 @@ STATE_VERSION = 1
 
 # Level ceiling by limit-break stage. A ship at her ceiling earns no EXP at
 # all, so carrying her through a stage is pure waste.
-LB_WALLS = {0: 70, 1: 80, 2: 90, 3: 100}
+#
+# Max limit break (stage 3) is deliberately absent. Its nominal ceiling is 100,
+# but Cognitive Awakening lifts it in +5 steps to 125 and nothing on the ship
+# detail page says whether a ship has taken those steps - the census field
+# cognition_awakened is never actually read by any scanner. Live proof that
+# guessing 100 would be wrong: Oumi sits at Lv.100 with 6/6 stars and still
+# passes the dock's "not level max" filter, i.e. the game says she can gain
+# more EXP. So a max-limit-broken ship gets no wall from this table; the dock
+# filter picks her (or not) and looks_walled() below catches her if she turns
+# out to be stuck.
+LB_WALLS = {0: 70, 1: 80, 2: 90}
 # METAs have no limit break - their star row is Somatic Activation - and cap
 # at 120 whatever the row says.
 META_CAP = 120
-# Cognitive Awakening lifts a max-limit-broken ship past 100 in +5 steps
-# (105/110/115/120) and a further tier reaches 125. The census records only
-# whether the 125 tier was taken, so the intermediate steps are invisible -
-# hence the stall counter below.
+# The far end of Cognitive Awakening. Only reachable when cognition_awakened is
+# recorded, which no reader sets today.
 AWAKEN_CAP = 125
 # Maintenance passes a ship may sit at the same level before she is treated as
 # walled. Two passes of CheckInterval runs each is far more EXP than any level
@@ -49,8 +57,11 @@ CRIT_LABEL = {
 }
 
 
-def _now():
+def now():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+
+_now = now
 
 
 def lb_stage(ship):
@@ -90,15 +101,17 @@ def level_cap(ship, target):
     if ship.get('cognition_awakened'):
         return min(target, AWAKEN_CAP)
     stage = lb_stage(ship)
-    if stage is None:
-        # Nothing readable to go on; the dock's not_level_max filter is the
-        # backstop for candidates and the stall counter for fleet occupants
+    if stage is None or stage not in LB_WALLS:
+        # Nothing readable to go on, or she is max limit broken and her real
+        # ceiling depends on Cognitive Awakening. The dock's not_level_max
+        # filter is the backstop for candidates and looks_walled() for fleet
+        # occupants.
         return target
     cap = LB_WALLS[stage]
     level = ship.get('level') or 0
     if level > cap:
-        # She is past the limit-break wall, so Cognitive Awakening was bought;
-        # a single bool cannot say how many steps, so defer to the target
+        # Past a wall she should not be past - a stale limit-break reading.
+        # Believe the level, not the stars.
         return target
     return min(target, cap)
 

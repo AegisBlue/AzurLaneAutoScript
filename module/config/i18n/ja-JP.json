@@ -1384,7 +1384,7 @@
     },
     "DormSync": {
       "name": "Sync Fleet Into Dorm",
-      "help": "Not implemented yet - the dorm's ship-management screen has not been mapped, so this only logs a warning. Leave it off. When it lands it will put the farming fleet into the dorm for 2-2.5x emotion recovery plus passive affinity and EXP."
+      "help": "Keep the dorm holding exactly the ships of the farming fleet. In the dorm morale recovers at 40-50 per hour instead of 20, and the ships gain passive EXP and affinity while they sit there. The roster is only touched when the fleet actually changed, and the emotion model is switched to dormitory recovery the first time it syncs."
     }
   },
   "EventGeneral": {

@@ -471,7 +471,7 @@
       "RegularMinSwapLevel": 70,
       "ActivateSkills": true,
       "UpdateCensus": true,
-      "DormSync": false
+      "DormSync": true
     },
     "Campaign": {
       "Name": "12-4",

@@ -178,7 +178,7 @@ class GeneratedConfig:
     ShipLeveling_RegularMinSwapLevel = 70
     ShipLeveling_ActivateSkills = True
     ShipLeveling_UpdateCensus = True
-    ShipLeveling_DormSync = False
+    ShipLeveling_DormSync = True
 
     # Group `EventGeneral`
     EventGeneral_PtLimit = 0

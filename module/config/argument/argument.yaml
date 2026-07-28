@@ -329,7 +329,7 @@ ShipLeveling:
   UpdateCensus:
     value: true
   DormSync:
-    value: false
+    value: true
 
 # ==================== Event ====================
 

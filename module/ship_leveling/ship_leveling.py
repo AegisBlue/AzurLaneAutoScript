@@ -34,10 +34,11 @@ from module.retire.scanner import ShipScanner
 from module.ship_census.census import ShipCensus
 from module.ship_census.store import CensusStore
 from module.ship_leveling import progress
+from module.ship_leveling.dorm_sync import DormRoster
 from module.ui.page import page_fleet
 
 
-class ShipLeveling(MetaLeveling):
+class ShipLeveling(MetaLeveling, DormRoster):
     # Set when neither the fleet nor the dock has anybody left who could gain
     # a level or a point of affinity from being carried.
     leveling_complete = False
@@ -465,17 +466,99 @@ class ShipLeveling(MetaLeveling):
             return False
         return True
 
+    def ui_goto_fleet(self):
+        """
+        As MetaLeveling, but escaping the dorm first.
+
+        Neither the dorm roster dialog nor its ship picker is a page ui_ensure
+        knows, so a run that ends inside one and comes back here would raise
+        GamePageUnknownError rather than navigate.
+        """
+        self.dorm_escape()
+        super().ui_goto_fleet()
+
+    # ------------------------------------------------------------------ dorm
+
+    @property
+    def dorm_fleet_index(self):
+        """The dorm should hold the ships of the fleet this task farms with."""
+        return self.fleet_to_attack_index
+
+    def fleet_roster_names(self):
+        """
+        Names of all six ships in the managed fleet.
+
+        The managed slots are named already - every maintenance pass reads them
+        off the detail page. The healer and clearer are not, because the task
+        never touches them, so they are read once and kept in the state file.
+
+        Most recently placed first. The dorm sync walks this list trying to add
+        each one, and a ship who is already in the dorm costs two taps and a
+        search to discover that - so the ship who just joined the fleet, who is
+        the one actually missing, should be tried first.
+
+        Pages:
+            in: page_fleet
+            out: page_fleet
+        """
+        found = []
+        for slot, button in SLOT_BUTTONS.items():
+            name = self.state.get(slot).get('name')
+            if not name:
+                logger.info('Slot {} has no name on record, reading it for the '
+                            'dorm'.format(slot))
+                self.identify_slot(slot, button)
+                name = self.state.get(slot).get('name')
+            if name:
+                found.append((self.state.get(slot).get('since') or '', name))
+        found.sort(key=lambda item: item[0], reverse=True)
+        return [name for _, name in found]
+
     def dorm_sync(self):
         """
-        Put the farming fleet into the dorm, where emotion recovers at 2-2.5x
-        the outside rate and ships gain passive affinity and EXP.
+        Keep the dorm holding the farming fleet: 40-50 morale per hour instead
+        of 20, plus passive EXP and affinity for everyone in it.
 
-        Not implemented yet: the dorm's ship-management UI is unmapped (no ALAS
-        task touches it - the Dorm task only feeds and collects), so it needs a
-        capture session of its own before any of it can be automated.
+        Skipped when the fleet has not changed since the last successful sync -
+        which is most passes, and the whole trip costs nothing then.
+
+        Pages:
+            in: page_fleet
+            out: page_fleet
         """
-        logger.warning('DormSync is enabled but the dorm roster UI has not been mapped yet, '
-                       'skipping. Turn it off until the dorm capture session is done.')
+        names = self.fleet_roster_names()
+        if len(names) < len(SLOT_BUTTONS):
+            logger.warning('Only {} of {} fleet ships could be named, the dorm sync would '
+                           'not be able to fill every place'.format(len(names),
+                                                                    len(SLOT_BUTTONS)))
+        last = self.state.data.get('dorm') or {}
+        if last.get('roster') == names and last.get('result') in ('synced', 'in_sync'):
+            logger.info('Fleet is unchanged since the last dorm sync, skipping')
+            return
+
+        result = self.dorm_sync_roster(names)
+        self.state.data['dorm'] = dict(roster=names, result=result, at=progress.now())
+        self.state.save()
+        logger.info('Dorm sync: {}'.format(result))
+        if result in ('synced', 'in_sync'):
+            self.record_dorm_recovery()
+        self.ui_goto_fleet()
+
+    def record_dorm_recovery(self):
+        """
+        Tell the emotion model the fleet is in the dorm, if it does not know.
+
+        Only ever set to floor 1 (40/h): the roster spans both floors and the
+        model takes one rate for the whole fleet, so the lower one is the only
+        safe answer - overestimating recovery is what sends a fleet into battle
+        with a red face.
+        """
+        key = 'Emotion_Fleet{}Recover'.format(self.fleet_to_attack)
+        current = getattr(self.config, key)
+        if current == 'not_in_dormitory':
+            logger.info('Fleet {} is in the dorm now, switching emotion recovery to '
+                        'dormitory_floor_1'.format(self.fleet_to_attack))
+            self.config.set_record(**{key: 'dormitory_floor_1'})
 
     # ------------------------------------------------------------------- run
 
