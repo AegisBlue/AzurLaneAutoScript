@@ -38,7 +38,7 @@ from module.meta_leveling.meta_leveling import SLOT_BUTTONS, MetaLeveling
 from module.retire.assets import DOCK_CHECK, DOCK_EMPTY
 from module.retire.dock import DOCK_SCROLL, OCR_DOCK_SELECTED
 from module.retire.scanner import ShipScanner
-from module.ship_census.census import ShipCensus
+from module.ship_census.census import ShipCensus, _names_alike
 from module.ship_census.store import CensusStore
 from module.ship_leveling import progress
 from module.ship_leveling.dorm_sync import DormRoster
@@ -151,10 +151,20 @@ class ShipLeveling(MetaLeveling, DormRoster):
         """
         Which census record the ship on the detail page belongs to.
 
-        Name plus HP identifies a hull; duplicate copies of the same ship share
-        both, so the tie is broken on the recorded level - a fleet ship's own
-        record is the one that last read closest to (and not above) where she
-        is now.
+        The ladder is ShipCensus.repair_match_key's, for the same reason: the
+        name comes off a stylised chip over moving artwork and misreads
+        constantly. Live, Yukikaze read as 'Y ukik a ze' on one pass out of
+        four, and filing that under a fresh key put a second, permanently
+        incomplete record of her in the store - and made the dorm think the
+        fleet had changed.
+
+        HP is the sounder handle of the two: a plain digit read on opaque
+        chrome, and near-unique per hull. So an unrecognised name falls back to
+        HP before it is ever allowed to mint a key.
+
+        Duplicate copies of one ship share name and HP, so those ties break on
+        the recorded level - a fleet ship's own record is the one that last read
+        closest to (and not above) where she is now.
 
         Returns:
             str: Record key, or None if the name would not read.
@@ -179,6 +189,16 @@ class ShipLeveling(MetaLeveling, DormRoster):
         if by_name:
             logger.info('No record of {!r} at HP {}, matching on the name alone'.format(name, hp))
             return closest(by_name)
+        if hp:
+            by_hp = [k for k, s in ships.items() if s.get('hp') == hp]
+            if len(by_hp) == 1:
+                logger.info('Name read as {!r}, which matches no record; HP {} is '
+                            '{}'.format(name, hp, by_hp[0]))
+                return by_hp[0]
+        alike = [k for k, s in ships.items() if _names_alike(s.get('name'), name)]
+        if len(alike) == 1:
+            logger.info('Name read as {!r}, matched {} on a near miss'.format(name, alike[0]))
+            return alike[0]
         # New ship (or one the last sweep never reached): file her under the
         # next free copy number
         n = 1
@@ -216,6 +236,16 @@ class ShipLeveling(MetaLeveling, DormRoster):
             fields['oathed'] = True
 
         key = self.census_key(detail)
+        stored = self.store.ships.get(key) if key else None
+        if stored and stored.get('name') and stored['name'] != fields['name']:
+            # The key was matched on HP or a near miss, so the stored name is
+            # the better read of the two. Overwriting it would let one bad OCR
+            # pass rename a ship - and the dorm sync compares fleet rosters by
+            # name, so it would also read as "the fleet changed".
+            logger.info('Name read as {!r} but {} is on record as {!r} - keeping the '
+                        'stored name'.format(fields['name'], key, stored['name']))
+            fields['name'] = stored['name']
+
         if key is None or not self.update_census:
             stored = self.store.ships.get(key) if key else None
             # Judge her by what was just read, not by a record that may predate
@@ -246,16 +276,25 @@ class ShipLeveling(MetaLeveling, DormRoster):
         Long-click a fleet slot, read the occupant off her detail page, decide
         whether she stays.
 
-        A META below TargetLevel and a regular ship below her reachable ceiling
-        both keep farming. A META at TargetLevel gets her research slot pointed
-        at an unfinished skill and then leaves regardless of skill state - the
-        skill EXP arrives from account-wide missions either way, so holding the
-        slot for her would only cost somebody else their levels.
+        A META below MetaTargetLevel and a regular ship below her reachable
+        ceiling both keep farming. A META at her target gets her research slot
+        pointed at an unfinished skill and then leaves regardless of skill state
+        - the skill EXP arrives from account-wide missions either way, so
+        holding the slot for her would only cost somebody else their levels.
+
+        A ship BELOW the swap-in floor leaves too. The floor is the answer to
+        "is this ship worth a fleet slot", and it has to mean the same thing
+        coming and going: a ship the task would never pick has no business
+        keeping the slot from one it would. Without that, one bad placement is
+        permanent - live, an early bug put a Lv.1 ship into a main slot and
+        every later pass dutifully kept her there because she was, technically,
+        below her ceiling.
 
         Returns:
-            str: 'leveled'     done here, swap her out
-                 'in_progress' keep farming with her
-                 'unknown'     could not read, keep
+            str: 'leveled'      done here, swap her out
+                 'below_floor'  not worth the slot, swap her out
+                 'in_progress'  keep farming with her
+                 'unknown'      could not read, keep
 
         Pages:
             in: page_fleet
@@ -266,19 +305,28 @@ class ShipLeveling(MetaLeveling, DormRoster):
         self.census.ensure_info_view()
         detail = self.census.read_ship_detail()
 
-        level, name = detail['level'], detail['name']
+        level = detail['level']
         key, ship = self.record_detail(detail)
+        # The census record's name, which survives a bad OCR pass; see census_key
+        name = (ship or {}).get('name') or detail['name']
         kind = 'meta' if detail['is_meta'] else 'regular'
         record = self.state.note(slot, name, detail['hp'], level, key=key, kind=kind,
                                  count_stall=self._farmed_last_batch)
         self.state.save()
 
-        cap = progress.level_cap(ship, self.target_level, self.meta_target_level)             if ship else self.target_level
-        logger.info('Slot {}: {!r} ({}) Lv.{}/{}, stalls {}'.format(
-            slot, name, kind, level, cap, record['stalls']))
+        cap = progress.level_cap(ship, self.target_level, self.meta_target_level) \
+            if ship else self.target_level
+        floor = self.min_swap_level if detail['is_meta'] else self.regular_min_level
+        logger.info('Slot {}: {!r} ({}) Lv.{}, floor {}, ceiling {}, stalls {}'.format(
+            slot, name, kind, level, floor, cap, record['stalls']))
 
         if level is None:
             status = 'unknown'
+        elif level < floor:
+            logger.info('Slot {}: Lv.{} is below the swap-in floor of {} - this task would '
+                        'never have chosen her, so she does not keep the slot'.format(
+                            slot, level, floor))
+            status = 'below_floor'
         elif detail['is_meta']:
             # cap is min(MetaTargetLevel, 120) here - a META cannot go past 120
             # however high the target is set
@@ -573,11 +621,12 @@ class ShipLeveling(MetaLeveling, DormRoster):
         self.ship_info_enter(button, long_click=True, skip_first_screenshot=False)
         self.census.ensure_info_view()
         detail = self.census.read_ship_detail()
-        key, _ = self.record_detail(detail)
-        self.state.note(slot, detail['name'], detail['hp'], detail['level'], key=key,
+        key, ship = self.record_detail(detail)
+        name = (ship or {}).get('name') or detail['name']
+        self.state.note(slot, name, detail['hp'], detail['level'], key=key,
                         kind='meta' if detail['is_meta'] else 'regular')
         self.state.save()
-        logger.info('Slot {} now holds {!r} (Lv.{})'.format(slot, detail['name'], detail['level']))
+        logger.info('Slot {} now holds {!r} (Lv.{})'.format(slot, name, detail['level']))
         self.ui_back(check_button=page_fleet.check_button)
 
     # ----------------------------------------------------------- maintenance
@@ -599,10 +648,20 @@ class ShipLeveling(MetaLeveling, DormRoster):
         results = {}
         for slot, button in self.managed_slots():
             status = self.inspect_slot(slot, button)
-            if status == 'leveled':
-                status = self.swap_slot(slot, button)
-                if status == 'swapped':
+            if status in ('leveled', 'below_floor'):
+                swap = self.swap_slot(slot, button)
+                if swap == 'swapped':
                     self.identify_slot(slot, button)
+                    status = 'swapped'
+                elif status == 'below_floor':
+                    # Nobody better on offer. She is under the floor, but she is
+                    # still gaining levels, and farming with her beats not
+                    # farming at all - so this is not a reason to stop.
+                    logger.info('Slot {}: no better candidate than the below-floor ship, '
+                                'keeping her'.format(slot))
+                    status = 'in_progress'
+                else:
+                    status = swap
             results[slot] = status
             self.device.click_record_clear()
         logger.info('Fleet maintenance results: {}'.format(results))

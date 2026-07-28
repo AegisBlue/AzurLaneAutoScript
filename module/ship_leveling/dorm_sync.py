@@ -42,6 +42,7 @@ import numpy as np
 from module.base.button import Button
 from module.base.timer import Timer
 from module.base.utils import crop
+from module.exception import GamePageUnknownError
 from module.logger import logger
 from module.retire.assets import DOCK_CHECK, SHIP_CONFIRM
 from module.retire.dock import OCR_DOCK_SELECTED, Dock
@@ -49,7 +50,8 @@ from module.retire.scanner import ShipScanner
 from module.ship_census.census import (DOCK_SEARCH_BUTTON, DOCK_SEARCH_CLEAR_KEYS,
                                        DOCK_SEARCH_FIELD, DOCK_SEARCH_STATE_AREA)
 from module.ship_leveling.assets import DORM_ROSTER_CHECK
-from module.ui.page import page_dorm
+from module.ui.assets import BACK_ARROW
+from module.ui.page import DORM_CHECK, page_dorm
 
 
 def _area_button(area, name):
@@ -135,7 +137,7 @@ class DormRoster(Dock):
         """
         self.dorm_escape()
         self.ui_ensure(page_dorm)
-        timeout = Timer(20, count=20).start()
+        timeout = Timer(25, count=25).start()
         click = Timer(2.5)
         while 1:
             if skip_first_screenshot:
@@ -149,6 +151,24 @@ class DormRoster(Dock):
                 logger.warning('Dorm roster dialog did not open')
                 return False
             if self.handle_info_bar():
+                continue
+            if not self.appear(DORM_CHECK, offset=(20, 20)):
+                # The chip shares its corner with the dorm's wandering chibi
+                # ships, and a tap that lands on one opens HER instead - live,
+                # eight taps in a row went nowhere because the first had left
+                # the dorm entirely. Get back before tapping again.
+                logger.info('Not on the dorm any more - a tap probably opened a ship, '
+                            'going back')
+                self.device.click(BACK_ARROW)
+                self.device.sleep((1.2, 1.6))
+                self.device.click_record_clear()
+                try:
+                    self.ui_ensure(page_dorm)
+                except GamePageUnknownError:
+                    # Still somewhere unrecognised; the next round clicks back
+                    # again rather than ending the whole task here
+                    logger.info('Page still unrecognised, backing out again')
+                click.reset()
                 continue
             if click.reached():
                 self.device.click(DORM_TRAIN_ENTER)
