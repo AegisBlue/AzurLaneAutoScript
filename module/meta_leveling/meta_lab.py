@@ -181,6 +181,14 @@ LAB_SWEEP_PAGE_CAP = 8
 # Confirms allowed on the learn dialog before it is taken as unaffordable. A
 # working Confirm needs exactly one.
 LEARN_CONFIRM_TRIES = 3
+# Clicks allowed on a skill card before it is taken as an empty slot. A card
+# that holds a skill takes the selection marker on the first one; an empty slot
+# is not clickable at all and can only ever be identified by not responding.
+# Each try gets a full click interval to register, so 3 covers a stalled render
+# with room to spare - and it retires the old behaviour of letting the whole
+# 20s card timeout run out, which cost 21s per empty slot (~3.5 min of the
+# 2026-07-29 13:16 run, on a question whose answer changes nothing).
+TACTICS_SELECT_TRIES = 3
 
 SKILL_MAX_LEVEL = 10
 # EXP one T1 META Universal Skill Book gives. Used until the task has
@@ -564,6 +572,7 @@ class MetaLab(Dock):
         card = TACTICS_SKILL_CARDS[index]
         timeout = Timer(20, count=20).start()
         learn_clicks = 0
+        select_clicks = 0
         self.interval_clear(TACTICS_CHECK)
         skip_first_screenshot = True
         while 1:
@@ -622,8 +631,18 @@ class MetaLab(Dock):
             # this card from a panel that belongs to another one
             if not self.skill_card_selected(index):
                 if self.appear(TACTICS_CHECK, offset=(20, 20), interval=3):
+                    # Checked here rather than at the top of the loop so the
+                    # last click still gets its full interval to register
+                    if select_clicks >= TACTICS_SELECT_TRIES:
+                        logger.info(f'Skill card {index + 1}: does not take the '
+                                    'selection marker, empty slot')
+                        return 'empty'
                     self.device.click(card)
+                    select_clicks += 1
                 continue
+            # It selected, so it is a real card: a later deselection (a skill-max
+            # celebration steals the marker) starts the count over
+            select_clicks = 0
 
             # Selected skill already maxed
             if self.skill_maxed_notice():
@@ -880,6 +899,7 @@ class MetaLab(Dock):
         """
         card = TACTICS_SKILL_CARDS[index]
         timeout = Timer(12, count=12).start()
+        select_clicks = 0
         self.interval_clear(TACTICS_CHECK)
         skip_first_screenshot = True
         while 1:
@@ -904,8 +924,14 @@ class MetaLab(Dock):
                 continue
             if not self.skill_card_selected(index):
                 if self.appear(TACTICS_CHECK, offset=(20, 20), interval=3):
+                    if select_clicks >= TACTICS_SELECT_TRIES:
+                        logger.info(f'Skill card {index + 1}: does not take the '
+                                    'selection marker, empty slot')
+                        return 'empty'
                     self.device.click(card)
+                    select_clicks += 1
                 continue
+            select_clicks = 0
 
             if self.skill_maxed_notice():
                 return 'maxed'
