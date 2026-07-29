@@ -4,6 +4,7 @@ import numpy as np
 
 import module.config.server as server
 from module.base.button import Button, ButtonGrid
+from module.base.decorator import cached_property
 from module.base.timer import Timer
 from module.logger import logger
 from module.meta_leveling.assets import *
@@ -135,6 +136,40 @@ LAB_DRAG_X = 640
 LAB_DRAG_Y = 620
 # Longest stroke that still starts and ends inside the card area
 LAB_DRAG_ROWS_MAX = 2
+# The dock does NOT snap to row boundaries after a drag - it stops wherever the
+# stroke left it, tens of pixels out. Everything below exists to measure that.
+#
+# Rows are found by the dark gaps BETWEEN them: the cards are bright to their
+# edges and the background between two rows is a near-black band running the
+# full width of the list. Ship artwork defeats every anchor inside a card (the
+# white Lv badge included - see the run this fixed), but nothing draws in the
+# gaps.
+LAB_GAP_X = (95, 1228)          # full card width, clear of the dock chrome
+LAB_GAP_DARK = 60               # mean brightness of a between-rows band
+LAB_GAP_MERGE = 6               # px; a bright sliver this thin does not end a gap
+# Where the FIRST gap below the top row falls, for any offset the drag can leave
+# (+-half a pitch around its nominal 280).
+LAB_GAP_SEARCH = (170, 410)
+LAB_CARD_TOP = 76               # LAB_CARD_GRIDS.origin[1]
+# Rows read (and paged) per screen. The dock draws three, but the third one's
+# name band - the only presence test that survives ship artwork, see
+# dock_card_present - falls off the bottom of the frame as soon as the list is
+# scrolled even slightly. Reading two and advancing two costs one extra drag per
+# page and makes every card's presence readable.
+LAB_ROWS_PER_PAGE = 2
+# The name band: an opaque chip with white text, at a fixed offset inside every
+# card. Measured over three captured pages, a card reads 310-1005 white pixels
+# here and an empty cell reads exactly 0 - including the near-black Hunter META
+# card, which a brightness test calls empty.
+LAB_NAME_BAND = (5, 168, 133, 195)
+LAB_NAME_WHITE = 60
+LAB_CARD_HEIGHT = 204           # LAB_CARD_GRIDS.button_shape[1]
+# The gap's START is the anchor, not its end. A card's bottom edge is a crisp
+# boundary; its TOP edge is a dark border of uneven thickness, which put the
+# first version of this 6-16px out - enough for a 22px-tall badge crop to miss.
+# Measured against three captured pages, the gap starts within 2px of the card
+# bottom every time.
+LAB_GAP_ANCHOR = LAB_CARD_TOP + LAB_CARD_HEIGHT
 # Sweep bounds. The roster is ~42 METAs; both are runaway brakes, not budgets.
 LAB_SWEEP_SHIP_CAP = 80
 LAB_SWEEP_PAGE_CAP = 8
@@ -1324,16 +1359,110 @@ class MetaLab(Dock):
             return False
         return True
 
-    def dock_card_present(self, index):
+    @staticmethod
+    def dock_row_offset(image):
         """
-        Card presence via white pixels of the "Lv." badge in the card's top
-        strip - the dock background is blurred scenery, so flat-color empty
-        checks fail there.
-        """
-        return self.image_color_count(LAB_CARD_LEVEL_GRIDS.buttons[index],
-                                      color=(255, 255, 255), threshold=221, count=10)
+        How far the card rows have slid from where the grid expects them.
 
-    def dock_card_present_settled(self, index):
+        The dock is a free-scrolling list: a drag stops it wherever the stroke
+        ended, not on a row boundary, so after the first page every row sits
+        tens of pixels below its nominal y. Reading the Lv badge at the nominal
+        position then lands on the row above - on its NAME BAND, which is white
+        text and reads as "a card is here". That is how the 2026-07-29 03:22
+        run managed to see 21 cards on page 1 and then declare page 2 empty
+        with 21 METAs still below it: every crop on that page was aimed at the
+        wrong band.
+
+        The rows are located by the dark gaps between them instead. Ship art
+        can be any colour, but the background between two rows is always a
+        near-black stripe across the whole width of the list.
+
+        Args:
+            image: Screenshot.
+
+        Returns:
+            int: Pixels to add to the grid's y, in (-pitch/2, pitch/2].
+                0 when nothing convincing was found, which is also the right
+                answer for an unscrolled dock.
+        """
+        column = np.array(image)[:, LAB_GAP_X[0]:LAB_GAP_X[1]].astype(int).mean(axis=(1, 2))
+        top, bottom = LAB_GAP_SEARCH
+        dark = column[top:bottom] < LAB_GAP_DARK
+
+        runs = []
+        y = 0
+        while y < len(dark):
+            if not dark[y]:
+                y += 1
+                continue
+            start = y
+            while y < len(dark):
+                if dark[y]:
+                    y += 1
+                    continue
+                # A thin bright sliver inside a gap - a card corner, a scrollbar
+                # tick - must not split it in two
+                gap = y
+                while gap < len(dark) and not dark[gap]:
+                    gap += 1
+                if gap - y < LAB_GAP_MERGE and gap < len(dark):
+                    y = gap
+                    continue
+                break
+            runs.append((start + top, y + top))
+
+        if not runs:
+            return 0
+        start, end = max(runs, key=lambda r: r[1] - r[0])
+        if end - start < LAB_GAP_MERGE:
+            return 0
+        # Any genuine gap answers the same question once taken modulo the pitch,
+        # so it does not matter which one the window caught.
+        offset = (start - LAB_GAP_ANCHOR) % LAB_CARD_ROW_PITCH
+        if offset > LAB_CARD_ROW_PITCH / 2:
+            offset -= LAB_CARD_ROW_PITCH
+        return int(offset)
+
+    @cached_property
+    def _lab_grids(self):
+        return {0: (LAB_CARD_GRIDS, LAB_CARD_LEVEL_GRIDS)}
+
+    def lab_grids(self, offset):
+        """
+        The card grid and its Lv-badge crop, shifted by `offset` pixels.
+
+        Cached per offset: ButtonGrid.move() rebuilds every button, and a
+        sweep asks for the same offset once per card.
+        """
+        if offset not in self._lab_grids:
+            cards = LAB_CARD_GRIDS.move((0, offset), name='LAB_CARD')
+            self._lab_grids[offset] = (cards, LAB_CARD_LEVEL_GRIDS.move((0, offset),
+                                                                        name='LAB_LEVEL'))
+        return self._lab_grids[offset]
+
+    def dock_card_present(self, index, offset=0):
+        """
+        Whether grid cell `index` holds a card, judged on its NAME BAND.
+
+        The band is an opaque chip with white text that every card carries and
+        the blurred dock background never does. The Lv badge this used to read
+        is not safe: bright ship art clears the same white threshold, so a
+        misaligned crop landing on the row above scored it as a card, and a
+        dark card could score as empty. The band separates the two absolutely -
+        310+ white pixels against 0.
+        """
+        cards, _ = self.lab_grids(offset)
+        x0, y0 = cards.buttons[index].area[0], cards.buttons[index].area[1]
+        left, top, right, bottom = LAB_NAME_BAND
+        area = (x0 + left, y0 + top, x0 + right, min(y0 + bottom, 719))
+        if area[3] - area[1] < 10:
+            logger.warning(f'Card {index + 1} name band is off screen, cannot judge it')
+            return False
+        button = Button(area=area, color=(), button=area, name=f'LAB_NAME_{index}')
+        return self.image_color_count(button, color=(255, 255, 255),
+                                      threshold=221, count=LAB_NAME_WHITE)
+
+    def dock_card_present_settled(self, index, offset=0):
         """
         dock_card_present with one retry on a fresh screenshot. Right after
         a page scroll the list may still be gliding, and a single mid-glide
@@ -1341,25 +1470,35 @@ class MetaLab(Dock):
         live: a run stopped at 14 ships while two more pages of METAs sat
         below the fold).
         """
-        if self.dock_card_present(index):
+        if self.dock_card_present(index, offset):
             return True
         self.device.sleep((1.0, 1.4))
         self.device.screenshot()
-        return self.dock_card_present(index)
+        return self.dock_card_present(index, self.dock_row_offset(self.device.image))
 
-    def dock_drag_rows(self, rows):
+    def dock_drag_rows(self, rows, correction=0):
         """
         Move the dock down by `rows` whole card rows.
 
         Split into strokes of at most LAB_DRAG_ROWS_MAX rows - a single
         3-row stroke would have to start below the card area to finish
         above the top of the screen.
+
+        Args:
+            rows (int):
+            correction (int): Extra pixels, to cancel the drift the last page
+                was found to have. Dragging rows*pitch every time lets that
+                drift accumulate until whole rows fall between two pages; adding
+                the measured offset lands the next page back on the grid.
         """
-        logger.info(f'Dock drag {rows} rows')
+        logger.info(f'Dock drag {rows} rows (correction {correction:+}px)')
+        first = True
         while rows > 0:
             step = min(rows, LAB_DRAG_ROWS_MAX)
+            distance = LAB_CARD_ROW_PITCH * step + (correction if first else 0)
+            first = False
             start = np.array([LAB_DRAG_X, LAB_DRAG_Y])
-            self.device.drag(start, start - np.array([0, LAB_CARD_ROW_PITCH * step]),
+            self.device.drag(start, start - np.array([0, distance]),
                              point_random=(-5, -5, 5, 5))
             # Dozens of consecutive drags are legitimate here; without this
             # the 12-same-button safety raises GameTooManyClickError
@@ -1398,15 +1537,20 @@ class MetaLab(Dock):
         # every swipe lands on the same ship.
         processed = 0
         pages = 0
+        empty_pages = 0
         while 1:
             self.device.screenshot()
             if self.appear(DOCK_EMPTY, offset=(20, 20)):
                 logger.info('No META ships in dock')
                 break
             page_seen = 0
-            for index in range(len(LAB_CARD_GRIDS.buttons)):
+            offset = self.dock_row_offset(self.device.image)
+            cards, _ = self.lab_grids(offset)
+            if offset:
+                logger.info(f'Dock rows sit {offset:+}px off the grid, reading them there')
+            for index in range(cards.grid_shape[0] * LAB_ROWS_PER_PAGE):
                 self.device.screenshot()
-                if not self.dock_card_present_settled(index):
+                if not self.dock_card_present_settled(index, offset):
                     # A card that reads absent is a hole in the page, not
                     # the end of the roster. Ending the sweep on the first
                     # one cost the 2026-07-28 run 25 ships: it stopped at
@@ -1418,7 +1562,7 @@ class MetaLab(Dock):
                     # goes unprocessed is visible in the run log.
                     logger.info(f'Dock card {index + 1} not readable, skipped')
                     continue
-                self.dock_enter_card(LAB_CARD_GRIDS.buttons[index])
+                self.dock_enter_card(cards.buttons[index])
                 self.process_ship()
                 processed += 1
                 page_seen += 1
@@ -1429,8 +1573,23 @@ class MetaLab(Dock):
             pages += 1
             logger.info(f'Dock page {pages}: {page_seen} ships ({processed} total)')
             if not page_seen:
+                # An empty page is only the end of the roster if the list agrees
+                # it has nothing more to show. Believing the cards alone is what
+                # let one bad page-alignment end the 03:22 run with half the
+                # METAs unvisited.
+                self.device.screenshot()
+                if DOCK_SCROLL.appear(main=self) and not DOCK_SCROLL.at_bottom(main=self):
+                    logger.warning('No card read on this page but the dock is not at the '
+                                   'bottom - nudging the list and trying once more')
+                    if empty_pages:
+                        logger.warning('Still nothing readable, giving up the sweep here')
+                        break
+                    empty_pages += 1
+                    self.dock_drag_rows(1)
+                    continue
                 logger.info('Empty dock page, end of ship list')
                 break
+            empty_pages = 0
             if processed >= LAB_SWEEP_SHIP_CAP:
                 logger.warning('MetaLab ship limit reached')
                 break
@@ -1447,7 +1606,9 @@ class MetaLab(Dock):
             # skipping them - a re-visit finds the research already running
             # and the badges cleared, so it costs seconds and changes
             # nothing.
-            self.dock_drag_rows(int(LAB_CARD_GRIDS.grid_shape[1]))
+            # Cancel the drift this page was found to have, so the next one
+            # lands back on the grid instead of accumulating it.
+            self.dock_drag_rows(LAB_ROWS_PER_PAGE, correction=offset)
         logger.info(f'META Lab pass processed {processed} ships')
 
         logger.hr('META Lab pass exit', level=1)
