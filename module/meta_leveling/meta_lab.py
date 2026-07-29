@@ -174,6 +174,10 @@ LAB_GAP_ANCHOR = LAB_CARD_TOP + LAB_CARD_HEIGHT
 LAB_SWEEP_SHIP_CAP = 80
 LAB_SWEEP_PAGE_CAP = 8
 
+# Confirms allowed on the learn dialog before it is taken as unaffordable. A
+# working Confirm needs exactly one.
+LEARN_CONFIRM_TRIES = 3
+
 SKILL_MAX_LEVEL = 10
 # EXP one T1 META Universal Skill Book gives. Used until the task has
 # observed one confirmed batch and calibrated the real value from the
@@ -199,6 +203,10 @@ class MetaLab(Dock):
     Leveling the ships themselves is MetaLeveling's (campaign farming) job.
     """
     books_exhausted = False
+    # Set the first time a learn dialog refuses to confirm. Learning any skill
+    # costs the same 5 red T3 books, so once one ship cannot afford it none can,
+    # and every further attempt is four wasted clicks on a dead dialog.
+    learn_blocked = False
 
     # ------------------------------------------------------------------ ui
 
@@ -551,6 +559,7 @@ class MetaLab(Dock):
         logger.hr(f'Skill card {index + 1}', level=2)
         card = TACTICS_SKILL_CARDS[index]
         timeout = Timer(20, count=20).start()
+        learn_clicks = 0
         self.interval_clear(TACTICS_CHECK)
         skip_first_screenshot = True
         while 1:
@@ -570,7 +579,32 @@ class MetaLab(Dock):
                     self.ui_click(LEARN_CANCEL, check_button=TACTICS_CHECK,
                                   offset=(20, 20), skip_first_screenshot=True)
                     return 'in_progress'
-                self.appear_then_click(LEARN_CONFIRM, offset=(20, 20), interval=3)
+                if self.learn_blocked:
+                    logger.info(f'Skill card {index + 1}: no books left to learn with, '
+                                'cancelling the dialog unopened')
+                    self.ui_click(LEARN_CANCEL, check_button=TACTICS_CHECK,
+                                  offset=(20, 20), skip_first_screenshot=True)
+                    self.device.click_record_clear()
+                    return 'cannot_learn'
+                if learn_clicks >= LEARN_CONFIRM_TRIES:
+                    # The dialog is still up after several confirms, so Confirm
+                    # is doing nothing - it is greyed out. In practice that
+                    # means the 5 red T3 books it wants are not there (live:
+                    # "You don't have enough materials", 1/5, and the old code
+                    # clicked it twelve times until ALAS called the game stuck
+                    # and killed the run with 14 METAs still unvisited).
+                    logger.warning(f'Skill card {index + 1}: the learn dialog will not '
+                                   'confirm, almost always the 5 red T3 books it wants - '
+                                   'no more learning this run')
+                    self.learn_blocked = True
+                    self.ui_click(LEARN_CANCEL, check_button=TACTICS_CHECK,
+                                  offset=(20, 20), skip_first_screenshot=True)
+                    # These are legitimate repeats across a roster of ships; the
+                    # click safety counts them as one runaway button otherwise
+                    self.device.click_record_clear()
+                    return 'cannot_learn'
+                if self.appear_then_click(LEARN_CONFIRM, offset=(20, 20), interval=3):
+                    learn_clicks += 1
                 timeout.reset()
                 continue
             if self.handle_popup_confirm('SKILL_CARD'):
@@ -805,7 +839,11 @@ class MetaLab(Dock):
         for index in order:
             result = self.process_skill_card(index)
             logger.info(f'Skill card {index + 1}: {result}')
-            if result in ('maxed', 'empty'):
+            if result in ('maxed', 'empty', 'cannot_learn'):
+                # A skill that could not be learned started nothing, so the
+                # ship's one research slot is still free - the next card may be
+                # an idle LEARNED skill, which costs nothing to start. Stopping
+                # here would leave her banking no skill EXP at all.
                 continue
             # 'in_progress', 'out_of_books' or 'failed': this card is the
             # active project until it maxes - leave the other cards alone
@@ -1525,6 +1563,7 @@ class MetaLab(Dock):
             self.config.task_stop()
 
         self.books_exhausted = False
+        self.learn_blocked = False
         logger.hr('META Lab pass', level=1)
         self.ui_ensure(page_dock)
         self.dock_favourite_set(False, wait_loading=False)
