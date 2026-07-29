@@ -151,6 +151,10 @@ LAB_GAP_MERGE = 6               # px; a bright sliver this thin does not end a g
 # (+-half a pitch around its nominal 280).
 LAB_GAP_SEARCH = (170, 410)
 LAB_CARD_TOP = 76               # LAB_CARD_GRIDS.origin[1]
+# The list is a window, not the whole screen: above LAB_CARD_TOP sit the dock
+# tabs and the filter button, below LAB_CARD_VIEW_BOTTOM the bottom bar. A
+# scrolled row overhangs both, and clicking the overhang hits that chrome.
+LAB_CARD_VIEW_BOTTOM = 640
 # Rows read (and paged) per screen. The dock draws three, but the third one's
 # name band - the only presence test that survives ship artwork, see
 # dock_card_present - falls off the bottom of the frame as soon as the list is
@@ -1548,12 +1552,41 @@ class MetaLab(Dock):
         """
         From page_dock, open a dock card's ship detail page.
 
+        The click lands inside the visible list only. When the row offset is
+        negative the top row's grid cell reaches above LAB_CARD_TOP, into the
+        dock's header - and the click point is random inside the cell, so
+        sooner or later it lands there. On the 2026-07-29 13:06 run, page 3
+        sat -82px off the grid and the draw came up y=5, on the dock's
+        filter button: the filter panel opened, DOCK_CHECK stopped
+        appearing, ui_click had nothing left to click and the task sat there
+        until GameStuckError restarted the game.
+
         Pages:
             in: page_dock
             out: SHIP_DETAIL_CHECK
         """
+        button = self.dock_card_clickable(button)
         self.ui_click(button, appear_button=DOCK_CHECK, check_button=SHIP_DETAIL_CHECK,
                       skip_first_screenshot=True)
+
+    @staticmethod
+    def dock_card_clickable(button):
+        """
+        A card button trimmed to the part of it the dock actually shows.
+
+        Args:
+            button (Button):
+
+        Returns:
+            Button: The same card, its area clipped to the list viewport.
+                Never degenerate: the largest offset the grid can carry
+                (-pitch/2) still leaves ~90px of card below LAB_CARD_TOP.
+        """
+        x1, y1, x2, y2 = button.area
+        area = (x1, max(y1, LAB_CARD_TOP), x2, min(y2, LAB_CARD_VIEW_BOTTOM))
+        if area == button.area:
+            return button
+        return Button(area=area, color=(), button=area, name=button.name)
 
     def run(self):
         if not self.lab_assets_ready():
