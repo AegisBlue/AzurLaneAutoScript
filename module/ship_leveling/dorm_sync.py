@@ -500,6 +500,13 @@ class DormRoster(Dock):
             self.dorm_roster_exit()
             return 'failed'
 
+        # Scan first: three settled frames go by, which is also what the counter
+        # needs. Reading it the instant the picker appears can catch the value
+        # from before the slot-0 ship was deselected, and a count one too high
+        # makes the front block reach past the dorm into the ordinary cards
+        # behind it - live, that had the sync trying seven times to "deselect" a
+        # fleet-2 ship who was never in the dorm at all.
+        cards = self.dorm_scan_fleet()
         chosen, capacity = self.dorm_selected_count()
         if chosen is None:
             logger.warning('Selected counter would not read, leaving the dorm alone')
@@ -510,7 +517,6 @@ class DormRoster(Dock):
         # Slot 0's ship was deselected by opening the picker, so the dorm held
         # one more than the counter says
         block = chosen + 1
-        cards = self.dorm_scan_fleet()
         logger.info('Dorm holds {} ships, picker shows {} cards, fleet {} is the '
                     'target'.format(block, len(cards), fleet))
 
@@ -531,7 +537,15 @@ class DormRoster(Dock):
                 keep = badge == fleet
             if selected == keep:
                 continue
-            self.dorm_toggle(card.button, want_more=keep, note=label)
+            if not self.dorm_toggle(card.button, want_more=keep, note=label):
+                if not keep:
+                    # She would not come out because she was never in: a card
+                    # this far along is not a dorm ship, so the block ends here
+                    # and everything after it belongs to the ordinary dock.
+                    logger.info('{} would not deselect - the dorm block ends before '
+                                'her, stopping the sweep'.format(label))
+                    break
+                continue
             # Every card in the front block was in the dorm when the picker
             # opened, so the roster only really moves when one of them should
             # not be. Re-selecting slot 0's ship just undoes what opening the

@@ -51,6 +51,23 @@ CANDIDATE_PAGES = 8
 # Cards tried per rung before giving up on it. A card can refuse the selection
 # ("In action"), and the next best is usually just as good.
 CANDIDATE_TRIES = 4
+# Fuzzy-name cutoff for deciding two reads are the same ship. Looser than the
+# census's own 0.8 because the failure this guards against is TRUNCATION:
+# 'Yukikaze' read as 'Y ukik' scores 0.77 and slipped through at 0.8, minting a
+# second record of a ship who already had one. Every use also requires the match
+# to be unique, which is what makes a loose cutoff safe.
+NAME_CUTOFF = 0.65
+# How far a hull's HP may drift and still be the same ship. HP is NOT constant:
+# it climbs as she levels (Yukikaze read 2161 at Lv.114, 2182 at Lv.116), so an
+# exact comparison misses her a level later. Different ships are orders apart.
+HP_DRIFT_RATIO = 0.06
+
+
+def _hp_alike(a, b):
+    """Whether two HP readings plausibly belong to the same hull."""
+    if not a or not b:
+        return False
+    return abs(a - b) <= max(a, b) * HP_DRIFT_RATIO
 
 
 class ShipLeveling(MetaLeveling, DormRoster):
@@ -147,7 +164,7 @@ class ShipLeveling(MetaLeveling, DormRoster):
 
     # ---------------------------------------------------------------- census
 
-    def census_key(self, detail):
+    def census_key(self, detail, expect_key=None):
         """
         Which census record the ship on the detail page belongs to.
 
@@ -166,6 +183,12 @@ class ShipLeveling(MetaLeveling, DormRoster):
         the recorded level - a fleet ship's own record is the one that last read
         closest to (and not above) where she is now.
 
+        Args:
+            detail (dict): From ShipCensus.read_ship_detail.
+            expect_key (str): The record this slot held last time, when the
+                caller is re-reading a slot it has not swapped. That is stronger
+                than anything on screen and is checked first.
+
         Returns:
             str: Record key, or None if the name would not read.
         """
@@ -173,6 +196,18 @@ class ShipLeveling(MetaLeveling, DormRoster):
         if not name:
             return None
         ships = self.store.ships
+
+        if expect_key and expect_key in ships:
+            # The caller knows who was standing in this slot last time, and the
+            # task never changes an occupant except through swap_slot, which
+            # clears the slot. So the slot's own record beats any reading -
+            # provided this really is still her, which the hull settles.
+            prior = ships[expect_key]
+            if _names_alike(prior.get('name'), name, cutoff=NAME_CUTOFF) \
+                    or _hp_alike(prior.get('hp'), hp):
+                return expect_key
+            logger.info('Slot expected {}, but {!r} at HP {} is somebody else'.format(
+                expect_key, name, hp))
 
         def closest(keys):
             level = detail.get('level')
@@ -195,10 +230,17 @@ class ShipLeveling(MetaLeveling, DormRoster):
                 logger.info('Name read as {!r}, which matches no record; HP {} is '
                             '{}'.format(name, hp, by_hp[0]))
                 return by_hp[0]
-        alike = [k for k, s in ships.items() if _names_alike(s.get('name'), name)]
+        alike = [k for k, s in ships.items()
+                 if _names_alike(s.get('name'), name, cutoff=NAME_CUTOFF)]
         if len(alike) == 1:
             logger.info('Name read as {!r}, matched {} on a near miss'.format(name, alike[0]))
             return alike[0]
+        if hp:
+            drifted = [k for k, s in ships.items() if _hp_alike(s.get('hp'), hp)]
+            if len(drifted) == 1:
+                logger.info('Name read as {!r}; HP {} is within a level or two of '
+                            '{}'.format(name, hp, drifted[0]))
+                return drifted[0]
         # New ship (or one the last sweep never reached): file her under the
         # next free copy number
         n = 1
@@ -206,7 +248,7 @@ class ShipLeveling(MetaLeveling, DormRoster):
             n += 1
         return '{}#{}'.format(name, n)
 
-    def record_detail(self, detail):
+    def record_detail(self, detail, expect_key=None):
         """
         Write a detail-page read back into the census store.
 
@@ -235,7 +277,7 @@ class ShipLeveling(MetaLeveling, DormRoster):
         if detail.get('oath_badge'):
             fields['oathed'] = True
 
-        key = self.census_key(detail)
+        key = self.census_key(detail, expect_key=expect_key)
         stored = self.store.ships.get(key) if key else None
         if stored and stored.get('name') and stored['name'] != fields['name']:
             # The key was matched on HP or a near miss, so the stored name is
@@ -306,7 +348,7 @@ class ShipLeveling(MetaLeveling, DormRoster):
         detail = self.census.read_ship_detail()
 
         level = detail['level']
-        key, ship = self.record_detail(detail)
+        key, ship = self.record_detail(detail, expect_key=self.state.get(slot).get('key'))
         # The census record's name, which survives a bad OCR pass; see census_key
         name = (ship or {}).get('name') or detail['name']
         kind = 'meta' if detail['is_meta'] else 'regular'
