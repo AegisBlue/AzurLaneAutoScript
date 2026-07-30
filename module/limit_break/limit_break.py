@@ -1,11 +1,14 @@
 import os
 
+import cv2
+import numpy as np
+
 from module.base.button import Button, ButtonGrid
 from module.base.timer import Timer
-from module.base.utils import crop
+from module.base.utils import area_offset, crop, rgb2luma
 from module.limit_break.assets import *
 from module.logger import logger
-from module.ocr.ocr import Digit
+from module.ocr.ocr import Digit, DigitCounter
 from module.retire.assets import DOCK_CHECK, DOCK_EMPTY, DOCK_FIRST_NPC, SHIP_DETAIL_CHECK
 from module.retire.dock import CARD_GRIDS, Dock
 from module.ui.assets import BACK_ARROW
@@ -23,10 +26,23 @@ OCR_LB_COST = Digit(
 OCR_COIN_BALANCE = Digit(
     Button(area=(808, 22, 940, 48), color=(), button=(808, 22, 940, 48), name='COIN_BALANCE'),
     letter=(255, 255, 255), threshold=128, name='OCR_COIN_BALANCE')
+# "Selected: <picked>/<required>" counter at the bottom of the material selection screen.
+# Reads as no counter at all while nothing is picked, the screen just says "Selected: 0".
+OCR_LB_SELECTED = DigitCounter(
+    Button(area=(450, 655, 680, 692), color=(), button=(450, 655, 680, 692), name='LB_SELECTED'),
+    letter=(255, 255, 255), threshold=128, name='OCR_LB_SELECTED')
 
 # A click here only dismisses "touch to continue" screens,
 # empty background on both the limit break screen and the success screen
 SAFE_CLICK = Button(area=(560, 85, 660, 120), color=(), button=(560, 85, 660, 120), name='SAFE_CLICK')
+
+# Search area for the LimitBreak tab. Tall y offset: the left column holds a variable
+# set of tabs, a Retrofit tab pushes LimitBreak about 95px down.
+LB_ENTER_OFFSET = (20, 250)
+# Luma above which a pixel belongs to the tab's icon and label rather than to the
+# ship illustration showing through it
+LB_ENTER_GLYPH = 150
+LB_ENTER_SIMILARITY = 0.6
 
 
 class LimitBreak(Dock):
@@ -39,7 +55,7 @@ class LimitBreak(Dock):
             LIMIT_BREAK_ENTER.file, LIMIT_BREAK_CHECK.file, LB_SLOT_ADD.file, LB_EXECUTE.file,
             MATERIAL_CHECK.file, MATERIAL_CONFIRM.file, MATERIAL_CANCEL.file,
             TEMPLATE_BULIN_UNIVERSAL.file, TEMPLATE_BULIN_MKII.file,
-            TEMPLATE_SLOT_EMPTY.file, TEMPLATE_SELECTED.file,
+            TEMPLATE_SLOT_EMPTY.file,
         ]
         missing = [f for f in files if not os.path.exists(f)]
         if missing:
@@ -125,6 +141,41 @@ class LimitBreak(Dock):
         # "Materials" section header, only shown on the limit break view
         return self.appear(LIMIT_BREAK_CHECK, offset=(20, 20))
 
+    def lb_enter_appear(self):
+        """
+        Locate the LimitBreak tab in the left column of the ship detail page.
+
+        The tab is drawn fully transparent: only its icon and label are painted, the
+        background is whatever part of the ship illustration is behind it. Plain
+        template matching therefore scores the ship art rather than the button, and
+        ships that look like the one the asset was captured from are the only ones
+        that score well -- over the 89 dock captures in screenshots/ship_census_repair,
+        50 of the 63 ships that have the tab scored below appear()'s 0.85 default and
+        were skipped as "lb_enter timeout".
+
+        Matching only the near-white glyph makes the ship behind it irrelevant:
+        0.82-0.97 for all 63 ships that have the tab, below 0.25 for the 26 captures
+        without one (META ships, research ships and bulins).
+
+        Returns:
+            bool: True if the tab is on screen. The match position is recorded on
+                LIMIT_BREAK_ENTER, so a following click lands on the tab wherever the
+                left column put it (a Retrofit tab pushes it ~95px down).
+        """
+        LIMIT_BREAK_ENTER.ensure_template()
+        LIMIT_BREAK_ENTER.ensure_luma_template()
+        offset = np.array((-LB_ENTER_OFFSET[0], -LB_ENTER_OFFSET[1],
+                           LB_ENTER_OFFSET[0], LB_ENTER_OFFSET[1]))
+        image = crop(self.device.image, offset + LIMIT_BREAK_ENTER.area, copy=False)
+
+        template = (LIMIT_BREAK_ENTER.image_luma > LB_ENTER_GLYPH).astype(np.uint8) * 255
+        image = (rgb2luma(image) > LB_ENTER_GLYPH).astype(np.uint8) * 255
+        res = cv2.matchTemplate(template, image, cv2.TM_CCOEFF_NORMED)
+        _, sim, _, point = cv2.minMaxLoc(res)
+        LIMIT_BREAK_ENTER._button_offset = area_offset(
+            LIMIT_BREAK_ENTER._button, offset[:2] + np.array(point))
+        return sim > LB_ENTER_SIMILARITY
+
     def lb_enter(self, skip_first_screenshot=True):
         """
         From ship detail page, open the limit break view.
@@ -152,11 +203,8 @@ class LimitBreak(Dock):
                 logger.warning('lb_enter timeout, ship skipped')
                 return False
 
-            # Tall y offset: ships with a Retrofit tab have an extra button in the
-            # left column, shifting LimitBreak down. Verified not to cross-match
-            # the META ship column (Research/Gear/Info, similarity 0.42).
             if self.appear(SHIP_DETAIL_CHECK, offset=(20, 20), interval=3) \
-                    and self.appear(LIMIT_BREAK_ENTER, offset=(20, 250)):
+                    and self.lb_enter_appear():
                 self.device.click(LIMIT_BREAK_ENTER)
                 continue
             if self.handle_game_tips():
@@ -205,9 +253,7 @@ class LimitBreak(Dock):
             card = crop(self.device.image, button.area)
             if TEMPLATE_BULIN_MKII.match(card):
                 result['mkii'].append(button)
-            elif TEMPLATE_BULIN_UNIVERSAL.match(card, similarity=0.70):
-                # Template is synthesized from shop assets, not a real capture,
-                # so it matches with lower similarity
+            elif TEMPLATE_BULIN_UNIVERSAL.match(card):
                 result['universal'].append(button)
             else:
                 result['dupe'].append(button)
@@ -236,9 +282,18 @@ class LimitBreak(Dock):
     def material_selected_count(self):
         """
         Returns:
-            int: Number of cards with the "SELECTED" overlay.
+            int: Number of materials picked so far.
+
+        Read from the counter at the bottom rather than from the cards. The
+        "- SELECTED -" overlay on a picked card is transparent -- its letters are
+        outlines with the card art showing through -- so a captured template only
+        matches the card it was captured from: 1.000 on the Prototype Bulin MKII it
+        came from, 0.542 on a Universal Bulin. Every Universal Bulin pick was
+        therefore counted as unselected and every such ship gave up with
+        "Not enough allowed materials to fill slots".
         """
-        return len(TEMPLATE_SELECTED.match_multi(self.device.image))
+        current, _, _ = OCR_LB_SELECTED.ocr(self.device.image)
+        return current
 
     def lb_select_materials(self, required, skip_first_screenshot=True):
         """
