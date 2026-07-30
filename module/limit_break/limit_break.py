@@ -26,10 +26,15 @@ OCR_LB_COST = Digit(
 OCR_COIN_BALANCE = Digit(
     Button(area=(808, 22, 940, 48), color=(), button=(808, 22, 940, 48), name='COIN_BALANCE'),
     letter=(255, 255, 255), threshold=128, name='OCR_COIN_BALANCE')
-# "Selected: <picked>/<required>" counter at the bottom of the material selection screen.
-# Reads as no counter at all while nothing is picked, the screen just says "Selected: 0".
+# The "<picked>/<required>" half of the "Selected: N/M" counter at the bottom of the
+# material selection screen. The label must stay outside the crop: DigitCounter takes the
+# first `\d+/\d+` in the line, and "Selected:" itself reads as digits, so a crop holding the
+# whole line yields "551581/2" -> picked=551581, which DigitCounter then clamps to the
+# required count and every screen looks fully selected.
+# Both layouts the counter can take ("Selected: 0" and "Selected: N/M") are centered in the
+# box, and the counts never reach two digits, so the fraction stays within this crop.
 OCR_LB_SELECTED = DigitCounter(
-    Button(area=(450, 655, 680, 692), color=(), button=(450, 655, 680, 692), name='LB_SELECTED'),
+    Button(area=(600, 652, 646, 694), color=(), button=(600, 652, 646, 694), name='LB_SELECTED'),
     letter=(255, 255, 255), threshold=128, name='OCR_LB_SELECTED')
 
 # A click here only dismisses "touch to continue" screens,
@@ -329,8 +334,10 @@ class LimitBreak(Dock):
                 continue
 
             if self.material_selected_count() >= required:
-                self.material_confirm()
-                return 'success'
+                if self.material_confirm():
+                    return 'success'
+                self.material_cancel()
+                return 'no_material'
             if clicked >= len(candidates):
                 logger.info('Not enough allowed materials to fill slots')
                 self.material_cancel()
@@ -344,8 +351,14 @@ class LimitBreak(Dock):
         """
         Confirm material selection. Selecting rare materials shows an
         "Elite and above ship" warning popup, which is confirmed as well.
+
+        Returns:
+            bool: False if the screen would not close. The game refuses to confirm a
+                partly filled selection, so a miscounted pick used to click Confirm
+                until ALAS raised GameTooManyClickError and stopped the scheduler.
         """
         logger.info('Material confirm')
+        timeout = Timer(10, count=10).start()
         self.interval_clear(MATERIAL_CONFIRM)
         while 1:
             if skip_first_screenshot:
@@ -354,7 +367,10 @@ class LimitBreak(Dock):
                 self.device.screenshot()
 
             if not self.appear(MATERIAL_CHECK, offset=(20, 20)) and self.is_in_lb():
-                break
+                return True
+            if timeout.reached():
+                logger.warning('material_confirm timeout, selection refused')
+                return False
             if self.appear_then_click(MATERIAL_CONFIRM, offset=(20, 20), interval=3):
                 continue
             if self.handle_popup_confirm('MATERIAL_CONFIRM'):
@@ -362,6 +378,7 @@ class LimitBreak(Dock):
 
     def material_cancel(self, skip_first_screenshot=True):
         logger.info('Material cancel')
+        timeout = Timer(10, count=10).start()
         self.interval_clear(MATERIAL_CANCEL)
         while 1:
             if skip_first_screenshot:
@@ -370,6 +387,10 @@ class LimitBreak(Dock):
                 self.device.screenshot()
 
             if not self.appear(MATERIAL_CHECK, offset=(20, 20)) and self.is_in_lb():
+                break
+            if timeout.reached():
+                # lb_exit backs out of whatever is left on screen
+                logger.warning('material_cancel timeout')
                 break
             if self.appear_then_click(MATERIAL_CANCEL, offset=(20, 20), interval=3):
                 continue
@@ -513,12 +534,15 @@ class LimitBreak(Dock):
             else:
                 self.device.screenshot()
 
-            if self.ui_page_appear(page_dock):
-                logger.info(f'Limit break exit at {page_dock}')
-                break
+            # Before the page_dock check: the material selection screen is drawn over
+            # the dock and satisfies ui_page_appear(page_dock), so testing that first
+            # would leave the selection open and report the exit as done.
             if self.appear(MATERIAL_CHECK, offset=(20, 20)):
                 self.material_cancel()
                 continue
+            if self.ui_page_appear(page_dock):
+                logger.info(f'Limit break exit at {page_dock}')
+                break
             if interval.reached() and (self.is_in_lb() or self.appear(SHIP_DETAIL_CHECK, offset=(20, 20))):
                 self.device.click(BACK_ARROW)
                 interval.reset()
