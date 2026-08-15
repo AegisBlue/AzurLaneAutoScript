@@ -124,6 +124,9 @@ class HardProgress(CampaignRun):
     # Set from the campaign override when a stage has stalled, read once the
     # generic campaign loop has torn the UI down again.
     no_progress = False
+    # run_count as of the last map peek, so a peek can tell whether a sortie
+    # actually happened since the previous one.
+    watched_run_count = 0
 
     """
     Progress record
@@ -270,6 +273,16 @@ class HardProgress(CampaignRun):
         record = self.record_read()
         ui = _int(record.get('ui'))
 
+        # A peek is one read of the stage popup, which is NOT one sortie.
+        # enter_map() returns to the popup and re-reads it whenever it has to
+        # detour on the way in - a full dock sending it off to retire and
+        # enhance, an urgent commission, a story, an info bar. Only a peek with
+        # a finished sortie behind it can claim the stage gained nothing, so
+        # the counter follows run_count, which the generic loop increments once
+        # per completed campaign run.
+        sortied = self.run_count > self.watched_run_count
+        self.watched_run_count = self.run_count
+
         if record.get('stage') != stage:
             # First peek at this stage, nothing to compare against yet
             self.record_write(stage=stage, pct=int(percent * 100), star=stars, fail=0, ui=ui)
@@ -278,22 +291,24 @@ class HardProgress(CampaignRun):
         best_percent = _int(record.get('pct')) / 100
         best_stars = _int(record.get('star'))
         fail = _int(record.get('fail'))
-        best = dict(
-            stage=stage,
-            pct=int(max(percent, best_percent) * 100),
-            star=max(stars, best_stars),
-            ui=ui,
-        )
+        best_pct = int(max(percent, best_percent) * 100)
+        best_star = max(stars, best_stars)
 
         if percent > best_percent + PERCENT_NOISE or stars > best_stars:
             logger.info(f'Hard stage {stage} progressed to {int(percent * 100)}%, {stars} star(s)')
-            self.record_write(fail=0, **best)
+            self.record_write(stage=stage, pct=best_pct, star=best_star, fail=0, ui=ui)
+            return
+
+        if not sortied:
+            logger.info(f'Hard stage {stage} popup re-read without a sortie in between, '
+                        f'not counting it as a failed attempt')
+            self.record_write(stage=stage, pct=best_pct, star=best_star, fail=fail, ui=ui)
             return
 
         fail += 1
         logger.warning(f'Hard stage {stage} gained nothing on {fail} entry/entries in a row, '
                        f'still {int(percent * 100)}%, {stars} star(s)')
-        self.record_write(fail=fail, **best)
+        self.record_write(stage=stage, pct=best_pct, star=best_star, fail=fail, ui=ui)
         if fail >= NO_PROGRESS_LIMIT:
             # Don't stop from in here. Returning True from triggered_map_stop()
             # lets the stock code cancel out of the popup and unwind cleanly,
@@ -477,23 +492,7 @@ class HardProgress(CampaignRun):
             TaskEnd:
         """
         logger.hr('Hard progress', level=1)
-        self.config.override(
-            Campaign_Mode='hard',
-            Campaign_UseClearMode=True,
-            Campaign_UseFleetLock=True,
-            Campaign_UseAutoSearch=True,
-            Campaign_Use2xBook=False,
-            Fleet_FleetOrder='fleet1_all_fleet2_standby',
-            Emotion_Mode='nothing',  # Dont calculate and dont ignore, same as the stock Hard task
-            # MAP_CLEAR_ALL_THIS_TIME, which routes through every node while a star is
-            # still missing, only arms on 'map_3_stars' / 'threat_safe'
-            StopCondition_MapAchievement='100_percent_clear'
-            if self.config.HardProgress_Criteria == '100_percent_clear' else 'map_3_stars',
-            StopCondition_StageIncrease=False,
-            StopCondition_RunCount=0,
-            StopCondition_GetNewShip=False,
-            StopCondition_ReachLevel=0,
-        )
+        self.override_config()
 
         stage = to_map_input_name(self.config.HardProgress_NextStage)
         end = to_map_input_name(self.config.HardProgress_EndStage)
@@ -507,6 +506,7 @@ class HardProgress(CampaignRun):
 
             self.current_stage = stage
             self.no_progress = False
+            self.watched_run_count = 0
             logger.hr(f'Hard stage {stage}', level=1)
             try:
                 super().run(name=to_map_file_name(stage), folder='campaign_main', mode='hard', total=0)
@@ -541,3 +541,26 @@ class HardProgress(CampaignRun):
             # stopped the generic loop has already set a delay of its own.
             logger.info('Campaign stopped before the stage was finished, yield to the scheduler')
             self.config.task_stop()
+
+    def override_config(self):
+        """
+        Every farming knob the task pins. In memory only - none of these groups
+        are bound to the task, so nothing here reaches config/alas.json.
+        """
+        self.config.override(
+            Campaign_Mode='hard',
+            Campaign_UseClearMode=True,
+            Campaign_UseFleetLock=True,
+            Campaign_UseAutoSearch=True,
+            Campaign_Use2xBook=False,
+            Fleet_FleetOrder='fleet1_all_fleet2_standby',
+            Emotion_Mode='nothing',  # Dont calculate and dont ignore, same as the stock Hard task
+            # MAP_CLEAR_ALL_THIS_TIME, which routes through every node while a star is
+            # still missing, only arms on 'map_3_stars' / 'threat_safe'
+            StopCondition_MapAchievement='100_percent_clear'
+            if self.config.HardProgress_Criteria == '100_percent_clear' else 'map_3_stars',
+            StopCondition_StageIncrease=False,
+            StopCondition_RunCount=0,
+            StopCondition_GetNewShip=False,
+            StopCondition_ReachLevel=0,
+        )
