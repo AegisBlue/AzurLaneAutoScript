@@ -406,6 +406,12 @@ class GeneratedConfig:
     Hard_HardStage = '11-4'
     Hard_HardFleet = 1  # 1, 2
 
+    # Group `HardProgress`
+    HardProgress_Criteria = '3_stars_and_100_percent'  # 3_stars_and_100_percent, map_3_stars, 100_percent_clear
+    HardProgress_NextStage = '1-1'
+    HardProgress_EndStage = '14-4'
+    HardProgress_FailureRecord = None
+
     # Group `Exercise`
     Exercise_OpponentChooseMode = 'max_exp'  # max_exp, easiest, leftmost, easiest_else_exp
     Exercise_OpponentTrial = 1

@@ -182,6 +182,10 @@
       "name": "困难图",
       "help": ""
     },
+    "HardProgress": {
+      "name": "Hard Progress",
+      "help": "Work through hard mode on its own: start at Next Stage, farm the first stage that does not meet Criteria until it does, move the pointer on, and spend the game's three daily hard entries this way every day until the whole hard campaign is done. Fleets are picked with the in-game Recommend button. Shares those three daily entries with the Hard task, never enable both. Disables itself once the campaign is complete, and also when a stage gains nothing on three entries in a row (defeat loop, or no fleet in this dock can satisfy it). Custom task, not from upstream ALAS."
+    },
     "Exercise": {
       "name": "演习",
       "help": ""
@@ -2503,6 +2507,31 @@
       "help": "",
       "1": "1",
       "2": "2"
+    }
+  },
+  "HardProgress": {
+    "_info": {
+      "name": "Hard Progress Settings",
+      "help": "Opening a stage popup costs no daily entry, so stages that already meet Criteria are recognised and skipped for free. Next Stage is written back to the config every time a stage is finished, so progress survives restarts."
+    },
+    "Criteria": {
+      "name": "Completion Criteria",
+      "help": "What a stage has to reach before the pointer moves on to the next one.",
+      "3_stars_and_100_percent": "3 stars and 100% clear",
+      "map_3_stars": "3 stars only",
+      "100_percent_clear": "100% clear only"
+    },
+    "NextStage": {
+      "name": "Next Stage",
+      "help": "Hard stage to work on next, such as 1-1 or 7-2. Updated automatically as stages are finished. Set it by hand to skip a stage this dock cannot clear."
+    },
+    "EndStage": {
+      "name": "End Stage",
+      "help": "Last hard stage to attempt, such as 14-4. Once the pointer moves past it, the task reports the hard campaign complete and disables itself. Keep it on the last chapter that really has a hard mode, otherwise the task will hunt for a stage that does not exist."
+    },
+    "FailureRecord": {
+      "name": "Failure Record",
+      "help": "Internal bookkeeping: the best result seen on the current stage, plus the counters behind the two self-disable conditions. Managed automatically, do not edit."
     }
   },
   "Exercise": {

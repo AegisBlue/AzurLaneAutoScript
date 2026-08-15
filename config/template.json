@@ -1676,6 +1676,25 @@
       "Storage": {}
     }
   },
+  "HardProgress": {
+    "Scheduler": {
+      "Enable": false,
+      "NextRun": "2020-01-01 00:00:00",
+      "Command": "HardProgress",
+      "SuccessInterval": 30,
+      "FailureInterval": 30,
+      "ServerUpdate": "00:00"
+    },
+    "HardProgress": {
+      "Criteria": "3_stars_and_100_percent",
+      "NextStage": "1-1",
+      "EndStage": "14-4",
+      "FailureRecord": null
+    },
+    "Storage": {
+      "Storage": {}
+    }
+  },
   "Exercise": {
     "Scheduler": {
       "Enable": false,

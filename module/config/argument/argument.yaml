@@ -729,6 +729,16 @@ Hard:
   HardFleet:
     value: 1
     option: [ 1, 2 ]
+# Custom task, not from upstream ALAS
+HardProgress:
+  Criteria:
+    value: 3_stars_and_100_percent
+    option: [ 3_stars_and_100_percent, map_3_stars, 100_percent_clear ]
+  NextStage: 1-1
+  EndStage: 14-4
+  FailureRecord:
+    value: ''
+    display: disabled
 Exercise:
   OpponentChooseMode:
     value: max_exp

@@ -387,6 +387,12 @@ Hard:
     SuccessInterval: 30
     FailureInterval: 30
     ServerUpdate: 00:00
+# Custom task, not from upstream ALAS
+HardProgress:
+  Scheduler:
+    SuccessInterval: 30
+    FailureInterval: 30
+    ServerUpdate: 00:00
 Exercise:
   Scheduler:
     SuccessInterval: 30

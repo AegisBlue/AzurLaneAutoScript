@@ -269,6 +269,10 @@ DailyMission:
     Hard:
       - Scheduler
       - Hard
+    # Custom task, not from upstream ALAS
+    HardProgress:
+      - Scheduler
+      - HardProgress
     Exercise:
       - Scheduler
       - Exercise

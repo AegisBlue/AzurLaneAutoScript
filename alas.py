@@ -259,6 +259,11 @@ class AzurLaneAutoScript:
         from module.hard.hard import CampaignHard
         CampaignHard(config=self.config, device=self.device).run()
 
+    # Custom task, not from upstream ALAS
+    def hard_progress(self):
+        from module.hard_progress.hard_progress import HardProgress
+        HardProgress(config=self.config, device=self.device).run()
+
     def exercise(self):
         from module.exercise.exercise import Exercise
         Exercise(config=self.config, device=self.device).run()

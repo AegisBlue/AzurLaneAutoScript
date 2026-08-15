@@ -1,0 +1,543 @@
+"""
+HardProgress - clear the hard-mode campaign stage by stage.
+
+The stock Hard task farms one stage forever: it reads Hard.HardStage and
+spends the game's three daily hard entries on it. Progressing through hard
+mode that way means editing the stage by hand every time one is finished.
+
+This task keeps the pointer itself. It walks the main campaign from NextStage
+towards EndStage, and on every stage it:
+
+1. Opens the stage popup and reads clear percentage and stars. Opening the
+   popup is free - a daily entry is only spent once the sortie is confirmed -
+   so a stage that already satisfies the criteria is recognised and skipped
+   at no cost. Scanning and farming are therefore the same operation.
+2. If the criteria are not met, sorties until they are, tapping the in-game
+   Recommend button on the fleet preparation page so the hard-mode stat
+   restrictions are met by whatever the dock can field.
+3. Writes the advanced pointer back to HardProgress.NextStage, so a restart
+   picks up where it left off.
+
+Two things end the task for good, both loud and both self-disabling, because
+neither gets better by trying again tomorrow:
+
+- The pointer walks past EndStage: hard mode is finished.
+- A stage takes three entries in a row without gaining a single percent or
+  star: either Recommend cannot build a fleet that satisfies the stage, or it
+  can enter but loses. A defeat is not an error in ALAS - a lost battle is
+  only logged - so this stall counter IS the defeat detector.
+
+Never enable this together with the stock Hard task. They share the same
+three daily entries and would fight over them.
+"""
+import re
+
+from module.base.timer import Timer
+from module.campaign.campaign_ui import MODE_SWITCH_1
+from module.campaign.run import CampaignRun
+from module.exception import HardNotSatisfied, RequestHumanTakeover, ScriptEnd
+from module.handler.fast_forward import to_map_file_name, to_map_input_name
+from module.hard.hard import OCR_HARD_REMAIN
+from module.logger import logger
+from module.map.assets import (
+    FLEET_1_ADVICE, FLEET_1_BAR, FLEET_1_CHOOSE, FLEET_1_CLEAR, FLEET_1_HARD_SATIESFIED, FLEET_1_IN_USE,
+    FLEET_2_ADVICE, FLEET_2_BAR, FLEET_2_CHOOSE, FLEET_2_CLEAR, FLEET_2_HARD_SATIESFIED, FLEET_2_IN_USE,
+    FLEET_2_IN_USE_W15
+)
+from module.map.map_fleet_preparation import FleetOperator
+from module.notify import handle_notify
+from module.ui.page import page_campaign
+
+STAGE_PATTERN = re.compile(r'^(\d+)-([1-4])$')
+# Consecutive map entries that may gain nothing before the stage is called
+# unclearable. Three is exactly one day's worth of entries, so a stall costs
+# one wasted day at most and is confirmed by a fresh, free peek the next day.
+NO_PROGRESS_LIMIT = 3
+# The clear percentage comes off a colour bar, not a number, so it wobbles by
+# about a percent between reads. Anything smaller than this is not progress.
+PERCENT_NOISE = 0.02
+# Recommend taps per fleet slot before giving up on it, and the seconds
+# between taps / before the whole attempt is abandoned.
+RECOMMEND_CLICKS = 3
+RECOMMEND_INTERVAL = 3
+RECOMMEND_TIMEOUT = 20
+# Consecutive task runs that may fail to even find the stage on screen before
+# it is called end-of-content. One is not enough: a stray info bar or a slow
+# chapter animation can eat a single attempt.
+UI_FAILURE_LIMIT = 2
+
+
+def parse_stage(name):
+    """
+    Args:
+        name (str): Stage name, such as '7-2' or 'campaign_7_2'.
+
+    Returns:
+        tuple[int, int]: Chapter and stage, such as (7, 2).
+    """
+    res = STAGE_PATTERN.match(to_map_input_name(name))
+    if res is None:
+        logger.critical(f'"{name}" is not a main campaign stage name such as "7-2"')
+        logger.critical('HardProgress.NextStage and HardProgress.EndStage must both look like "7-2"')
+        raise RequestHumanTakeover
+    return int(res.group(1)), int(res.group(2))
+
+
+def next_stage(name):
+    """
+    Local string math, deliberately not campaign_name_increase(). That helper
+    validates the new name against the map files of the *current* campaign
+    folder, which becomes campaign_hard once the folder swap for 12-4 / 14-4
+    happens - and campaign_hard holds only those two files, so the pointer
+    would never leave 12-4.
+
+    Args:
+        name (str): Stage name, such as '7-4'.
+
+    Returns:
+        str: Next stage, such as '8-1'.
+    """
+    chapter, stage = parse_stage(name)
+    if stage >= 4:
+        return f'{chapter + 1}-1'
+    return f'{chapter}-{stage + 1}'
+
+
+def stage_le(name, other):
+    """
+    Returns:
+        bool: If stage `name` comes at or before stage `other`.
+    """
+    return parse_stage(name) <= parse_stage(other)
+
+
+def _int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+class HardProgress(CampaignRun):
+    # Stage the pointer currently sits on, such as '3-2'.
+    current_stage = ''
+    # Set from the campaign override when a stage has stalled, read once the
+    # generic campaign loop has torn the UI down again.
+    no_progress = False
+
+    """
+    Progress record
+
+    Both counters have to survive across task runs - a stall is three entries
+    spread over a day, and a UI failure ends the run that noticed it - so they
+    live in the bound argument HardProgress.FailureRecord, stored as
+    'stage=3-2,pct=85,star=2,fail=1,ui=0'. It is hidden from the GUI.
+    """
+
+    def record_read(self):
+        """
+        Returns:
+            dict[str, str]:
+        """
+        data = {}
+        for part in str(self.config.HardProgress_FailureRecord or '').split(','):
+            key, sep, value = part.partition('=')
+            if sep:
+                data[key.strip()] = value.strip()
+        return data
+
+    def record_write(self, **kwargs):
+        text = ','.join([f'{k}={v}' for k, v in kwargs.items()])
+        if text != str(self.config.HardProgress_FailureRecord or ''):
+            self.config.HardProgress_FailureRecord = text
+
+    def record_clear(self):
+        if self.config.HardProgress_FailureRecord:
+            self.config.HardProgress_FailureRecord = ''
+
+    """
+    Stop conditions
+    """
+
+    def self_disable(self, title, reason):
+        """
+        Log loudly, notify, turn the task off and end it.
+
+        Raises:
+            TaskEnd:
+        """
+        logger.critical(reason)
+        handle_notify(
+            self.config.Error_OnePushConfig,
+            title=f"Alas <{self.config.config_name}> HardProgress stopped",
+            content=f"<{self.config.config_name}> {title}: {reason}"
+        )
+        self.config.Scheduler_Enable = False
+        self.config.task_stop()
+
+    def all_done_stop(self, stage, end):
+        self.record_clear()
+        self.self_disable(
+            title='Hard campaign complete',
+            reason=f'Hard stage {stage} is past EndStage {end}, so every hard stage satisfies '
+                   f'HardProgress.Criteria. HardProgress disables itself'
+        )
+
+    def no_progress_stop(self, stage):
+        self.self_disable(
+            title='Hard stage stuck',
+            reason=f'Hard stage {stage} gained no clear percentage and no star on '
+                   f'{NO_PROGRESS_LIMIT} entries in a row. Either the fleets Recommend can build do not '
+                   f'satisfy this stage, or they enter and lose. Clear it manually, or point '
+                   f'HardProgress.NextStage past it, then re-enable the task. HardProgress disables itself'
+        )
+
+    def hard_unsatisfied_stop(self, stage):
+        self.self_disable(
+            title='Hard fleet unavailable',
+            reason=f'Hard stage {stage} still rejects the fleets after tapping Recommend, so no fleet in '
+                   f'this dock can satisfy its stat restrictions. Level up, or point HardProgress.NextStage '
+                   f'past it, then re-enable the task. HardProgress disables itself'
+        )
+
+    def handle_campaign_ui_failure(self, stage, error):
+        """
+        The generic campaign loop only lets a ScriptEnd escape when
+        ensure_campaign_ui() gave up finding the stage. The first time that
+        may still be transient, so retry later. Twice in a row means the stage
+        is not there: chapter locked, or the end of hard-mode content.
+
+        Raises:
+            TaskEnd:
+        """
+        record = self.record_read()
+        strike = _int(record.get('ui')) + 1
+        record['ui'] = strike
+        self.record_write(**record)
+
+        if strike >= UI_FAILURE_LIMIT:
+            self.self_disable(
+                title='Hard stage not found',
+                reason=f'Hard stage {stage} could not be found on screen {strike} runs in a row ({error}). '
+                       f'Its chapter is either locked or past the end of hard mode. Set '
+                       f'HardProgress.EndStage to the last stage that exists, then re-enable the task. '
+                       f'HardProgress disables itself'
+            )
+
+        logger.warning(f'Failed to reach hard stage {stage} ({error}), retry later')
+        self.config.task_delay(success=False)
+        self.config.task_stop()
+
+    def reset_ui_failure(self):
+        record = self.record_read()
+        if _int(record.get('ui')):
+            record['ui'] = 0
+            self.record_write(**record)
+
+    """
+    Criteria
+    """
+
+    def criteria_met(self, campaign):
+        """
+        Args:
+            campaign (CampaignBase): Holding the map info of the last peek.
+
+        Returns:
+            bool: If the stage satisfies HardProgress.Criteria.
+        """
+        criteria = self.config.HardProgress_Criteria
+        if criteria == '100_percent_clear':
+            return campaign.map_is_100_percent_clear
+        if criteria == 'map_3_stars':
+            return campaign.map_is_3_stars
+        return campaign.map_is_100_percent_clear and campaign.map_is_3_stars
+
+    def watch_progress(self, campaign):
+        """
+        Called on every map peek, right after map_get_info(). Compares this
+        peek against the best result recorded for the stage and counts the
+        entries that gained nothing.
+
+        Args:
+            campaign (CampaignBase): In MAP_PREPARATION, map info just read.
+        """
+        stage = self.current_stage
+        percent = float(campaign.map_clear_percentage)
+        stars = int(campaign.map_achieved_star_1) \
+            + int(campaign.map_achieved_star_2) \
+            + int(campaign.map_achieved_star_3)
+        record = self.record_read()
+        ui = _int(record.get('ui'))
+
+        if record.get('stage') != stage:
+            # First peek at this stage, nothing to compare against yet
+            self.record_write(stage=stage, pct=int(percent * 100), star=stars, fail=0, ui=ui)
+            return
+
+        best_percent = _int(record.get('pct')) / 100
+        best_stars = _int(record.get('star'))
+        fail = _int(record.get('fail'))
+        best = dict(
+            stage=stage,
+            pct=int(max(percent, best_percent) * 100),
+            star=max(stars, best_stars),
+            ui=ui,
+        )
+
+        if percent > best_percent + PERCENT_NOISE or stars > best_stars:
+            logger.info(f'Hard stage {stage} progressed to {int(percent * 100)}%, {stars} star(s)')
+            self.record_write(fail=0, **best)
+            return
+
+        fail += 1
+        logger.warning(f'Hard stage {stage} gained nothing on {fail} entry/entries in a row, '
+                       f'still {int(percent * 100)}%, {stars} star(s)')
+        self.record_write(fail=fail, **best)
+        if fail >= NO_PROGRESS_LIMIT:
+            # Don't stop from in here. Returning True from triggered_map_stop()
+            # lets the stock code cancel out of the popup and unwind cleanly,
+            # and run() reads the flag once the UI is back on page_campaign.
+            self.no_progress = True
+
+    """
+    Fleet Recommend
+    """
+
+    def hard_progress_recommend(self, campaign):
+        """
+        Tap the in-game Recommend button for every fleet slot that shows one
+        and does not satisfy the stage's stat restrictions yet. Slots that are
+        already satisfied are left alone, so a fleet the user prepared by hand
+        is never swapped out.
+
+        Args:
+            campaign (CampaignBase): In FLEET_PREPARATION.
+
+        Returns:
+            bool: If any Recommend was tapped.
+        """
+        if campaign.map_fleet_checked:
+            return False
+
+        fleet_1 = FleetOperator(
+            choose=FLEET_1_CHOOSE, advice=FLEET_1_ADVICE, bar=FLEET_1_BAR, clear=FLEET_1_CLEAR,
+            in_use=FLEET_1_IN_USE, hard_satisfied=FLEET_1_HARD_SATIESFIED, main=campaign)
+        # FLEET_1_CLEAR moves up on the W15 layout and FLEET_2_IN_USE moves with it,
+        # same check as module/map/map_fleet_preparation.py
+        y = FLEET_1_CLEAR.button[1] - FLEET_1_CLEAR.area[1]
+        if y < -10:
+            logger.info('FLEET_1_CLEAR moves up, load W15 assets')
+            in_use = FLEET_2_IN_USE_W15
+        else:
+            in_use = FLEET_2_IN_USE
+        fleet_2 = FleetOperator(
+            choose=FLEET_2_CHOOSE, advice=FLEET_2_ADVICE, bar=FLEET_2_BAR, clear=FLEET_2_CLEAR,
+            in_use=in_use, hard_satisfied=FLEET_2_HARD_SATIESFIED, main=campaign)
+
+        # Submarine is left untouched: the stock hard path clears it unless the
+        # user set Submarine.Fleet, and submarines carry no stat restriction.
+        clicked = False
+        for fleet in [fleet_1, fleet_2]:
+            if self.recommend_fleet(campaign, fleet):
+                clicked = True
+        return clicked
+
+    def recommend_fleet(self, campaign, fleet):
+        """
+        Args:
+            campaign (CampaignBase): In FLEET_PREPARATION.
+            fleet (FleetOperator):
+
+        Returns:
+            bool: If Recommend was tapped at least once.
+        """
+        # None: no Recommend button, this slot has no restriction to satisfy.
+        # True: satisfied already, don't touch the user's fleet.
+        if fleet.is_hard_satisfied() is not False:
+            return False
+
+        logger.info(f'{fleet} does not satisfy the hard restrictions, tap Recommend')
+        click_timer = Timer(RECOMMEND_INTERVAL, count=6)
+        timeout = Timer(RECOMMEND_TIMEOUT).start()
+        clicks = 0
+        while 1:
+            campaign.device.screenshot()
+
+            # Recommend may ask to confirm replacing the current fleet
+            if campaign.handle_popup_confirm('HARD_RECOMMEND'):
+                continue
+
+            if fleet.is_hard_satisfied() is not False:
+                logger.info(f'{fleet} satisfied after {clicks} Recommend tap(s)')
+                return clicks > 0
+            if clicks >= RECOMMEND_CLICKS:
+                logger.warning(f'{fleet} still not satisfied after {clicks} Recommend tap(s)')
+                return clicks > 0
+            if timeout.reached():
+                logger.warning(f'{fleet} Recommend timeout, still not satisfied')
+                return clicks > 0
+
+            if click_timer.reached():
+                campaign.device.click(fleet._advice)
+                clicks += 1
+                click_timer.reset()
+
+    """
+    Campaign
+    """
+
+    def load_campaign(self, name, folder='campaign_main'):
+        super().load_campaign(name, folder=folder)
+        outer = self
+
+        class HardProgressCampaign(self.module.Campaign):
+            def triggered_map_stop(self):
+                """
+                Replaces the stock StopCondition.MapAchievement evaluation:
+                the combined 3-star AND 100% criteria has no stock equivalent,
+                and a stalled stage has to unwind through the same path.
+                """
+                if outer.criteria_met(self):
+                    return True
+                if outer.no_progress:
+                    logger.warning('Hard stage made no progress, cancel out instead of entering again')
+                    return True
+                return False
+
+            def handle_map_stop(self):
+                """
+                MANDATORY no-op. The stock version sets Scheduler.Enable=False
+                on what looks like a throwaway deepcopy of the config, but the
+                copy keeps the bound paths and the config name, so the write
+                lands in config/alas.json and turns this task off every time a
+                stage is finished.
+                """
+                pass
+
+            def map_get_info(self):
+                super().map_get_info()
+                outer.watch_progress(self)
+
+            def fleet_preparation(self):
+                outer.hard_progress_recommend(self)
+                try:
+                    return super().fleet_preparation()
+                except HardNotSatisfied:
+                    logger.warning('Hard restrictions not satisfied after Recommend, tap it once more')
+
+                outer.hard_progress_recommend(self)
+                try:
+                    return super().fleet_preparation()
+                except HardNotSatisfied:
+                    # HardNotSatisfied subclasses RequestHumanTakeover, which alas.py
+                    # answers with exit(1). It must never escape this task.
+                    outer.hard_unsatisfied_stop(outer.current_stage)
+
+        self.campaign = HardProgressCampaign(device=self.campaign.device, config=self.campaign.config)
+        return True
+
+    """
+    Run
+    """
+
+    def hard_entries_exhausted(self):
+        """
+        Read the remaining hard entries off page_campaign. The generic loop
+        already delays the task when they run out, but it breaks out of the
+        loop the same way an oil limit does, so the count has to be read again
+        to tell the two apart.
+
+        Returns:
+            bool: If today's three hard entries are spent.
+        """
+        self.device.screenshot()
+        if not self.ui_page_appear(page_campaign):
+            logger.info('Not on page_campaign, cannot read hard entries')
+            return False
+        # MODE_SWITCH_1 is named after the mode it switches TO,
+        # so 'normal' means hard mode is the one currently shown
+        if MODE_SWITCH_1.get(main=self) != 'normal':
+            logger.info('Not in hard mode, cannot read hard entries')
+            return False
+
+        remain = OCR_HARD_REMAIN.ocr(self.device.image)
+        logger.attr('Hard remain', remain)
+        return not remain
+
+    def run(self, name='', folder='campaign_main', mode='hard', total=0):
+        """
+        Args:
+            name (str): Ignored, the stage comes from HardProgress.NextStage.
+            folder (str): Ignored, hard mode only exists in campaign_main.
+            mode (str): Ignored, always 'hard'.
+            total (int): Ignored, the daily entry limit is the only cap.
+
+        Raises:
+            TaskEnd:
+        """
+        logger.hr('Hard progress', level=1)
+        self.config.override(
+            Campaign_Mode='hard',
+            Campaign_UseClearMode=True,
+            Campaign_UseFleetLock=True,
+            Campaign_UseAutoSearch=True,
+            Campaign_Use2xBook=False,
+            Fleet_FleetOrder='fleet1_all_fleet2_standby',
+            Emotion_Mode='nothing',  # Dont calculate and dont ignore, same as the stock Hard task
+            # MAP_CLEAR_ALL_THIS_TIME, which routes through every node while a star is
+            # still missing, only arms on 'map_3_stars' / 'threat_safe'
+            StopCondition_MapAchievement='100_percent_clear'
+            if self.config.HardProgress_Criteria == '100_percent_clear' else 'map_3_stars',
+            StopCondition_StageIncrease=False,
+            StopCondition_RunCount=0,
+            StopCondition_GetNewShip=False,
+            StopCondition_ReachLevel=0,
+        )
+
+        stage = to_map_input_name(self.config.HardProgress_NextStage)
+        end = to_map_input_name(self.config.HardProgress_EndStage)
+        logger.attr('HardProgress_Criteria', self.config.HardProgress_Criteria)
+        logger.attr('HardProgress_NextStage', stage)
+        logger.attr('HardProgress_EndStage', end)
+
+        while 1:
+            if not stage_le(stage, end):
+                self.all_done_stop(stage, end)
+
+            self.current_stage = stage
+            self.no_progress = False
+            logger.hr(f'Hard stage {stage}', level=1)
+            try:
+                super().run(name=to_map_file_name(stage), folder='campaign_main', mode='hard', total=0)
+            except ScriptEnd as e:
+                # Only ensure_campaign_ui() lets a ScriptEnd out of the generic
+                # loop. A criteria-met ScriptEnd is raised and caught inside it.
+                self.handle_campaign_ui_failure(stage, e)
+            self.reset_ui_failure()
+
+            if self.no_progress:
+                self.no_progress_stop(stage)
+
+            # Entries first: when they run out the loop breaks before peeking,
+            # so the map info still describes the state before the last sortie.
+            # Tomorrow's peek is free and advances the pointer if it is due.
+            if self.hard_entries_exhausted():
+                logger.hr('Hard entries spent for today', level=1)
+                self.config.task_delay(server_update=True)
+                self.config.task_call('Reward')
+                self.config.task_stop()
+
+            if self.criteria_met(self.campaign):
+                new = next_stage(stage)
+                logger.hr(f'Hard stage {stage} satisfies {self.config.HardProgress_Criteria}', level=1)
+                logger.info(f'Advance pointer {stage} -> {new}')
+                self.config.HardProgress_NextStage = new
+                self.record_clear()
+                stage = new
+                continue
+
+            # Oil limit, commission notice, task switch and friends. Whatever
+            # stopped the generic loop has already set a delay of its own.
+            logger.info('Campaign stopped before the stage was finished, yield to the scheduler')
+            self.config.task_stop()

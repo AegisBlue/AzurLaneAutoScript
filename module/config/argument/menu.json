@@ -69,6 +69,7 @@
     "tasks": [
       "Daily",
       "Hard",
+      "HardProgress",
       "Exercise",
       "ShopFrequent",
       "ShopOnce",

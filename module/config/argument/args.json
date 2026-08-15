@@ -8638,6 +8638,75 @@
       }
     }
   },
+  "HardProgress": {
+    "Scheduler": {
+      "Enable": {
+        "type": "checkbox",
+        "value": false,
+        "option": [
+          true,
+          false
+        ]
+      },
+      "NextRun": {
+        "type": "datetime",
+        "value": "2020-01-01 00:00:00",
+        "validate": "datetime"
+      },
+      "Command": {
+        "type": "input",
+        "value": "HardProgress",
+        "display": "hide"
+      },
+      "SuccessInterval": {
+        "type": "input",
+        "value": 30,
+        "display": "hide"
+      },
+      "FailureInterval": {
+        "type": "input",
+        "value": 30,
+        "display": "hide"
+      },
+      "ServerUpdate": {
+        "type": "input",
+        "value": "00:00",
+        "display": "hide"
+      }
+    },
+    "HardProgress": {
+      "Criteria": {
+        "type": "select",
+        "value": "3_stars_and_100_percent",
+        "option": [
+          "3_stars_and_100_percent",
+          "map_3_stars",
+          "100_percent_clear"
+        ]
+      },
+      "NextStage": {
+        "type": "input",
+        "value": "1-1"
+      },
+      "EndStage": {
+        "type": "input",
+        "value": "14-4"
+      },
+      "FailureRecord": {
+        "type": "input",
+        "value": "",
+        "display": "disabled"
+      }
+    },
+    "Storage": {
+      "Storage": {
+        "type": "storage",
+        "value": {},
+        "valuetype": "ignore",
+        "display": "disabled"
+      }
+    }
+  },
   "Exercise": {
     "Scheduler": {
       "Enable": {

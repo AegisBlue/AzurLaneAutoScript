@@ -28,6 +28,7 @@ class ManualConfig:
     > IslandOrder
     > IslandProduction
     > Daily > Hard > OpsiAshBeacon > OpsiAshAssist > OpsiMonthBoss
+    > HardProgress
     > Sos > EventSp > EventA > EventB > EventC > EventD
     > RaidDaily > CoalitionSp > WarArchives > MaritimeEscort
     > Event > Event2 > Raid > Hospital > Coalition > Main > Main2 > Main3
