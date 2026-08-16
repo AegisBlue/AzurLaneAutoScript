@@ -184,7 +184,7 @@
     },
     "HardProgress": {
       "name": "Hard Progress",
-      "help": "Work through hard mode on its own: start at Next Stage, farm the first stage that does not meet Criteria until it does, move the pointer on, and spend the game's three daily hard entries this way every day until the whole hard campaign is done. Fleets are picked with the in-game Recommend button. Shares those three daily entries with the Hard task, never enable both. Disables itself once the campaign is complete, and also when a stage gains nothing on three entries in a row (defeat loop, or no fleet in this dock can satisfy it). Custom task, not from upstream ALAS."
+      "help": "Work through hard mode on its own: start at Next Stage, farm the first stage that does not meet Criteria until it does, move the pointer on, and spend the game's three daily hard entries this way every day until the whole hard campaign is done. Before every sortie both fleets are emptied and rebuilt with the in-game Recommend button, so it never goes out with the fleet the game remembers from the last clear. Shares those three daily entries with the Hard task, never enable both. Disables itself once the campaign is complete, and also when a stage gains nothing on three entries in a row (defeat loop, or no fleet in this dock can satisfy it). Custom task, not from upstream ALAS."
     },
     "Exercise": {
       "name": "Exercise",
@@ -2512,7 +2512,7 @@
   "HardProgress": {
     "_info": {
       "name": "Hard Progress Settings",
-      "help": "Opening a stage popup costs no daily entry, so stages that already meet Criteria are recognised and skipped for free. Next Stage is written back to the config every time a stage is finished, so progress survives restarts."
+      "help": "Opening a stage popup costs no daily entry, so stages that already meet Criteria are recognised and skipped for free. Next Stage is written back to the config every time a stage is finished, so progress survives restarts. Fleet 1 and fleet 2 are cleared and refilled by Recommend on every sortie - a hand-picked hard fleet will not survive a run of this task."
     },
     "Criteria": {
       "name": "Completion Criteria",

@@ -12,9 +12,10 @@ towards EndStage, and on every stage it:
    popup is free - a daily entry is only spent once the sortie is confirmed -
    so a stage that already satisfies the criteria is recognised and skipped
    at no cost. Scanning and farming are therefore the same operation.
-2. If the criteria are not met, sorties until they are, tapping the in-game
-   Recommend button on the fleet preparation page so the hard-mode stat
-   restrictions are met by whatever the dock can field.
+2. If the criteria are not met, sorties until they are. Both fleets are
+   emptied on the preparation page and rebuilt with the in-game Recommend
+   button, so every sortie goes out with a fleet picked from the dock as it is
+   today rather than the one the game remembers from the last clear.
 3. Writes the advanced pointer back to HardProgress.NextStage, so a restart
    picks up where it left off.
 
@@ -61,6 +62,11 @@ PERCENT_NOISE = 0.02
 RECOMMEND_CLICKS = 3
 RECOMMEND_INTERVAL = 3
 RECOMMEND_TIMEOUT = 20
+# Same, for emptying a slot. One click does it; the budget is only there so a
+# missed click gets a second chance.
+CLEAR_CLICKS = 2
+CLEAR_INTERVAL = 2
+CLEAR_TIMEOUT = 15
 # Consecutive task runs that may fail to even find the stage on screen before
 # it is called end-of-content. One is not enough: a stray info bar or a slow
 # chapter animation can eat a single attempt.
@@ -125,7 +131,11 @@ class HardProgress(CampaignRun):
     # generic campaign loop has torn the UI down again.
     no_progress = False
     # run_count as of the last map peek, so a peek can tell whether a sortie
-    # actually happened since the previous one.
+    # actually happened since the previous one. run_count itself is only
+    # annotated on CampaignRun, not assigned, so it does not exist until
+    # CampaignRun.run() sets it - give it a default rather than let a peek from
+    # anywhere else die on AttributeError.
+    run_count = 0
     watched_run_count = 0
 
     """
@@ -319,22 +329,19 @@ class HardProgress(CampaignRun):
     Fleet Recommend
     """
 
-    def hard_progress_recommend(self, campaign):
+    @staticmethod
+    def fleet_operators(campaign):
         """
-        Tap the in-game Recommend button for every fleet slot that shows one
-        and does not satisfy the stage's stat restrictions yet. Slots that are
-        already satisfied are left alone, so a fleet the user prepared by hand
-        is never swapped out.
+        The same two FleetOperators upstream builds in fleet_preparation().
+        Rebuild them after anything that moves the fleet cards around, because
+        __init__ is what loads the button offsets against the current layout.
 
         Args:
             campaign (CampaignBase): In FLEET_PREPARATION.
 
         Returns:
-            bool: If any Recommend was tapped.
+            dict[str, FleetOperator]: Keyed 'FLEET_1' and 'FLEET_2'.
         """
-        if campaign.map_fleet_checked:
-            return False
-
         fleet_1 = FleetOperator(
             choose=FLEET_1_CHOOSE, advice=FLEET_1_ADVICE, bar=FLEET_1_BAR, clear=FLEET_1_CLEAR,
             in_use=FLEET_1_IN_USE, hard_satisfied=FLEET_1_HARD_SATIESFIED, main=campaign)
@@ -349,30 +356,123 @@ class HardProgress(CampaignRun):
         fleet_2 = FleetOperator(
             choose=FLEET_2_CHOOSE, advice=FLEET_2_ADVICE, bar=FLEET_2_BAR, clear=FLEET_2_CLEAR,
             in_use=in_use, hard_satisfied=FLEET_2_HARD_SATIESFIED, main=campaign)
+        return {'FLEET_1': fleet_1, 'FLEET_2': fleet_2}
 
-        # Submarine is left untouched: the stock hard path clears it unless the
-        # user set Submarine.Fleet, and submarines carry no stat restriction.
-        clicked = False
-        for fleet in [fleet_1, fleet_2]:
-            if self.recommend_fleet(campaign, fleet):
-                clicked = True
-        return clicked
-
-    def recommend_fleet(self, campaign, fleet):
+    def hard_progress_recommend(self, campaign):
         """
+        Empty fleet 1 and fleet 2, then let the in-game Recommend button fill
+        them again from the current dock.
+
+        Clearing first is the whole point. The game remembers the fleet used on
+        the last clear of a hard stage, and Recommend only fills what is empty,
+        so tapping it on a crewed slot changes nothing - the sortie goes out
+        with whatever was good enough the last time this stage was touched,
+        which on an account that has moved on is a bad fleet that still passes
+        the stat check. An emptied slot has nothing to pass the check with, so
+        Recommend has to build a fresh one.
+
+        Submarine is left untouched: the stock hard path clears it unless the
+        user set Submarine.Fleet, and submarines carry no stat restriction.
+
+        Args:
+            campaign (CampaignBase): In FLEET_PREPARATION.
+
+        Returns:
+            bool: If any slot was rebuilt.
+        """
+        if campaign.map_fleet_checked:
+            return False
+
+        cleared = []
+        for name, fleet in self.fleet_operators(campaign).items():
+            if not fleet.allow():
+                logger.info(f'{fleet} is not used on this stage, leave it alone')
+                continue
+            if not fleet.is_hard():
+                logger.info(f'{fleet} has no Recommend button, leave it alone')
+                continue
+            self.clear_fleet(campaign, fleet)
+            cleared.append(name)
+
+        if not cleared:
+            logger.warning('No fleet slot to rebuild, leaving fleet preparation to upstream')
+            return False
+
+        # Emptying the slots reflows the fleet cards, so the offsets have to be
+        # loaded again before Recommend is tapped at them
+        campaign.device.screenshot()
+        fleets = self.fleet_operators(campaign)
+        for name in cleared:
+            self.recommend_fleet(campaign, fleets[name])
+        return True
+
+    def clear_fleet(self, campaign, fleet):
+        """
+        Empty a fleet slot.
+
+        NOT FleetOperator.clear(): that one clicks until in_use() reads False,
+        and in_use() decides "crewed" from how much the slot's image varies. On
+        a hard stage an emptied slot is not blank - it shows the ship types the
+        stage demands as coloured placeholder tags (BB, CA, CL, DD) - so the
+        variance stays high, in_use() never goes False, and the loop clicks
+        until ALAS's own GameTooManyClickError fires. Upstream never meets this
+        because it skips fleet handling entirely once it detects hard mode.
+
+        Bounded clicks instead, confirmed by the stat requirements going
+        unsatisfied: an empty fleet cannot meet a level or firepower minimum.
+
         Args:
             campaign (CampaignBase): In FLEET_PREPARATION.
             fleet (FleetOperator):
 
         Returns:
-            bool: If Recommend was tapped at least once.
+            bool: If the slot was confirmed empty.
         """
-        # None: no Recommend button, this slot has no restriction to satisfy.
-        # True: satisfied already, don't touch the user's fleet.
-        if fleet.is_hard_satisfied() is not False:
-            return False
+        logger.info(f'Clear {fleet}')
+        click_timer = Timer(CLEAR_INTERVAL, count=4)
+        timeout = Timer(CLEAR_TIMEOUT).start()
+        clicks = 0
+        while 1:
+            campaign.device.screenshot()
 
-        logger.info(f'{fleet} does not satisfy the hard restrictions, tap Recommend')
+            # Clearing a hard fleet asks for confirmation
+            if campaign.handle_popup_confirm('HARD_CLEAR'):
+                continue
+
+            if clicks and fleet.is_hard_satisfied() is False:
+                logger.info(f'{fleet} emptied after {clicks} click(s)')
+                return True
+            if clicks >= CLEAR_CLICKS:
+                logger.info(f'{fleet} clicked CLEAR {clicks} time(s) without confirming it emptied, '
+                            f'letting Recommend decide')
+                return False
+            if timeout.reached():
+                logger.warning(f'{fleet} clear timeout, letting Recommend decide')
+                return False
+
+            if click_timer.reached():
+                campaign.device.click(fleet._clear)
+                clicks += 1
+                click_timer.reset()
+
+    def recommend_fleet(self, campaign, fleet):
+        """
+        Tap Recommend until the slot satisfies the stage's stat restrictions.
+        Always taps at least once - it is called on a slot that was just
+        emptied on purpose.
+
+        in_use() is not consulted: it reads the same placeholder tags that make
+        clear_fleet() necessary, so on a hard stage it says "crewed" about an
+        empty slot. The orange requirement lines are the honest signal.
+
+        Args:
+            campaign (CampaignBase): In FLEET_PREPARATION.
+            fleet (FleetOperator):
+
+        Returns:
+            bool: If the slot ended up satisfied.
+        """
+        logger.info(f'Recommend {fleet}')
         click_timer = Timer(RECOMMEND_INTERVAL, count=6)
         timeout = Timer(RECOMMEND_TIMEOUT).start()
         clicks = 0
@@ -383,15 +483,15 @@ class HardProgress(CampaignRun):
             if campaign.handle_popup_confirm('HARD_RECOMMEND'):
                 continue
 
-            if fleet.is_hard_satisfied() is not False:
-                logger.info(f'{fleet} satisfied after {clicks} Recommend tap(s)')
-                return clicks > 0
+            if clicks and fleet.is_hard_satisfied() is not False:
+                logger.info(f'{fleet} filled and satisfied after {clicks} Recommend tap(s)')
+                return True
             if clicks >= RECOMMEND_CLICKS:
                 logger.warning(f'{fleet} still not satisfied after {clicks} Recommend tap(s)')
-                return clicks > 0
+                return False
             if timeout.reached():
                 logger.warning(f'{fleet} Recommend timeout, still not satisfied')
-                return clicks > 0
+                return False
 
             if click_timer.reached():
                 campaign.device.click(fleet._advice)
