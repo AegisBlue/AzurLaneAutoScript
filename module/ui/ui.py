@@ -9,6 +9,7 @@ from module.handler.assets import (AUTO_SEARCH_MENU_EXIT, BATTLE_PASS_NEW_SEASON
                                    LOGIN_ANNOUNCE, LOGIN_ANNOUNCE_2, LOGIN_CHECK, LOGIN_RETURN_SIGN,
                                    MAINTENANCE_ANNOUNCE, MONTHLY_PASS_NOTICE)
 from module.handler.info_handler import InfoHandler
+from module.island_exit.handler import island_exit_restart
 from module.logger import logger
 from module.map.assets import (FLEET_PREPARATION, MAP_PREPARATION,
                                MAP_PREPARATION_CANCEL, WITHDRAW)
@@ -260,6 +261,9 @@ class UI(InfoHandler):
                     continue
                 if self.appear(page.check_button, offset=offset, interval=5):
                     self.ui_current = page
+                    if island_exit_restart(self, page):
+                        clicked = True
+                        break
                     island_page_detected = page.is_island() or page.parent.is_island()
                     logger.info(f'Page switch: {page} -> {page.parent}')
                     button = page.links[page.parent]
