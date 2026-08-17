@@ -36,14 +36,15 @@ import re
 from module.base.timer import Timer
 from module.campaign.campaign_ui import MODE_SWITCH_1
 from module.campaign.run import CampaignRun
-from module.exception import HardNotSatisfied, RequestHumanTakeover, ScriptEnd
+from module.exception import RequestHumanTakeover, ScriptEnd
 from module.handler.fast_forward import to_map_file_name, to_map_input_name
 from module.hard.hard import OCR_HARD_REMAIN
 from module.logger import logger
 from module.map.assets import (
     FLEET_1_ADVICE, FLEET_1_BAR, FLEET_1_CHOOSE, FLEET_1_CLEAR, FLEET_1_HARD_SATIESFIED, FLEET_1_IN_USE,
     FLEET_2_ADVICE, FLEET_2_BAR, FLEET_2_CHOOSE, FLEET_2_CLEAR, FLEET_2_HARD_SATIESFIED, FLEET_2_IN_USE,
-    FLEET_2_IN_USE_W15
+    FLEET_2_IN_USE_W15, SUBMARINE_ADVICE, SUBMARINE_BAR, SUBMARINE_CHOOSE, SUBMARINE_CLEAR,
+    SUBMARINE_HARD_SATIESFIED, SUBMARINE_IN_USE
 )
 from module.map.map_fleet_preparation import FleetOperator
 from module.notify import handle_notify
@@ -59,9 +60,13 @@ NO_PROGRESS_LIMIT = 3
 PERCENT_NOISE = 0.02
 # Recommend taps per fleet slot before giving up on it, and the seconds
 # between taps / before the whole attempt is abandoned.
-RECOMMEND_CLICKS = 3
+RECOMMEND_CLICKS = 5
 RECOMMEND_INTERVAL = 3
-RECOMMEND_TIMEOUT = 20
+RECOMMEND_TIMEOUT = 30
+# Seconds to keep re-reading the requirement lines after the last tap. A row
+# that is still animating reads unsatisfied, and mistaking that for "this dock
+# cannot do it" would self-disable the task over nothing.
+RECOMMEND_SETTLE = 6
 # Same, for emptying a slot. One click does it; the budget is only there so a
 # missed click gets a second chance.
 CLEAR_CLICKS = 2
@@ -378,12 +383,19 @@ class HardProgress(CampaignRun):
             campaign (CampaignBase): In FLEET_PREPARATION.
 
         Returns:
-            bool: If any slot was rebuilt.
+            dict[str, bool]: Slot name -> is_hard_satisfied() after the rebuild
+                (True satisfied, False cannot be satisfied, None unreadable).
+                Empty if there was nothing to rebuild.
         """
         if campaign.map_fleet_checked:
-            return False
+            return {}
 
-        cleared = []
+        # Decide which slots to touch from ONE clean screenshot, before any
+        # clicking. Clearing a fleet raises a confirmation popup that covers the
+        # other fleet's row, so a slot examined after the first clear looks like
+        # it is not on this stage at all and would be left with its stale fleet.
+        campaign.device.screenshot()
+        targets = []
         for name, fleet in self.fleet_operators(campaign).items():
             if not fleet.allow():
                 logger.info(f'{fleet} is not used on this stage, leave it alone')
@@ -391,20 +403,25 @@ class HardProgress(CampaignRun):
             if not fleet.is_hard():
                 logger.info(f'{fleet} has no Recommend button, leave it alone')
                 continue
-            self.clear_fleet(campaign, fleet)
-            cleared.append(name)
+            targets.append(name)
 
-        if not cleared:
-            logger.warning('No fleet slot to rebuild, leaving fleet preparation to upstream')
-            return False
+        if not targets:
+            logger.warning('No fleet slot to rebuild')
+            return {}
 
-        # Emptying the slots reflows the fleet cards, so the offsets have to be
-        # loaded again before Recommend is tapped at them
-        campaign.device.screenshot()
-        fleets = self.fleet_operators(campaign)
-        for name in cleared:
-            self.recommend_fleet(campaign, fleets[name])
-        return True
+        # Empty every slot before recommending any of them, so Recommend picks
+        # fleet 1 out of the whole dock instead of avoiding whatever fleet 2 is
+        # still holding. Reload the operators before each step: clicking reflows
+        # the fleet cards and the offsets are loaded in FleetOperator.__init__.
+        for name in targets:
+            campaign.device.screenshot()
+            self.clear_fleet(campaign, self.fleet_operators(campaign)[name])
+
+        results = {}
+        for name in targets:
+            campaign.device.screenshot()
+            results[name] = self.recommend_fleet(campaign, self.fleet_operators(campaign)[name])
+        return results
 
     def clear_fleet(self, campaign, fleet):
         """
@@ -439,7 +456,9 @@ class HardProgress(CampaignRun):
             if campaign.handle_popup_confirm('HARD_CLEAR'):
                 continue
 
-            if clicks and fleet.is_hard_satisfied() is False:
+            # Surface slots confirm through the requirement lines going out;
+            # the submarine row has no lines, so in_use() answers for it
+            if clicks and (fleet.is_hard_satisfied() is False or not fleet.in_use()):
                 logger.info(f'{fleet} emptied after {clicks} click(s)')
                 return True
             if clicks >= CLEAR_CLICKS:
@@ -470,12 +489,16 @@ class HardProgress(CampaignRun):
             fleet (FleetOperator):
 
         Returns:
-            bool: If the slot ended up satisfied.
+            bool: is_hard_satisfied() as last read. True satisfied, False the
+                dock cannot satisfy this stage, None unreadable (the Recommend
+                button is hidden while the refilled row animates, and that is a
+                transient state, not a verdict).
         """
         logger.info(f'Recommend {fleet}')
         click_timer = Timer(RECOMMEND_INTERVAL, count=6)
         timeout = Timer(RECOMMEND_TIMEOUT).start()
         clicks = 0
+        satisfied = None
         while 1:
             campaign.device.screenshot()
 
@@ -483,20 +506,74 @@ class HardProgress(CampaignRun):
             if campaign.handle_popup_confirm('HARD_RECOMMEND'):
                 continue
 
-            if clicks and fleet.is_hard_satisfied() is not False:
-                logger.info(f'{fleet} filled and satisfied after {clicks} Recommend tap(s)')
-                return True
+            if clicks:
+                satisfied = fleet.is_hard_satisfied()
+                if satisfied is True:
+                    logger.info(f'{fleet} filled and satisfied after {clicks} Recommend tap(s)')
+                    return True
             if clicks >= RECOMMEND_CLICKS:
-                logger.warning(f'{fleet} still not satisfied after {clicks} Recommend tap(s)')
-                return False
+                logger.info(f'{fleet} tapped {clicks} time(s), waiting for the row to settle')
+                break
             if timeout.reached():
-                logger.warning(f'{fleet} Recommend timeout, still not satisfied')
-                return False
+                logger.info(f'{fleet} Recommend budget timed out, waiting for the row to settle')
+                break
 
             if click_timer.reached():
                 campaign.device.click(fleet._advice)
                 clicks += 1
                 click_timer.reset()
+
+        # Out of taps. The row may still be animating and a mid-animation read
+        # is not a verdict, so keep looking for a while before reporting one.
+        settle = Timer(RECOMMEND_SETTLE).start()
+        while not settle.reached():
+            campaign.device.screenshot()
+            if campaign.handle_popup_confirm('HARD_RECOMMEND'):
+                continue
+            satisfied = fleet.is_hard_satisfied()
+            if satisfied is True:
+                logger.info(f'{fleet} satisfied once the row settled')
+                return True
+
+        logger.warning(f'{fleet} not confirmed satisfied after {clicks} Recommend tap(s), '
+                       f'is_hard_satisfied={satisfied}')
+        return satisfied
+
+    def skip_upstream_fleet_preparation(self, campaign):
+        """
+        Do what upstream's fleet_preparation() does once it decides the stage is
+        hard mode, without letting it decide.
+
+        Its test is "is a Recommend button visible", evaluated on whatever the
+        screen looks like at that moment. Right after Recommend refills a slot
+        the row is still animating and no button is visible, so it reads not-hard
+        for every slot, drops into the normal-mode path, and clears fleet 2 with
+        FleetOperator.clear() - which cannot terminate on a hard slot and takes
+        the game down with GameTooManyClickError. This task only ever runs hard
+        stages, so the answer is known and does not need re-deriving.
+
+        Args:
+            campaign (CampaignBase): In FLEET_PREPARATION.
+
+        Returns:
+            bool: False, matching upstream's return.
+        """
+        logger.info('Hard Campaign. No fleet preparation')
+        campaign.map_is_hard_mode = True
+
+        campaign.device.screenshot()
+        submarine = FleetOperator(
+            choose=SUBMARINE_CHOOSE, advice=SUBMARINE_ADVICE, bar=SUBMARINE_BAR, clear=SUBMARINE_CLEAR,
+            in_use=SUBMARINE_IN_USE, hard_satisfied=SUBMARINE_HARD_SATIESFIED, main=campaign)
+        if not submarine.allow():
+            logger.info('Submarine is not used on this stage')
+            campaign.config.SUBMARINE = 0
+            return False
+        if campaign.config.Submarine_Fleet:
+            logger.info('Keeping the submarine fleet the user configured')
+            return False
+        self.clear_fleet(campaign, submarine)
+        return False
 
     """
     Campaign
@@ -535,19 +612,30 @@ class HardProgress(CampaignRun):
                 outer.watch_progress(self)
 
             def fleet_preparation(self):
-                outer.hard_progress_recommend(self)
-                try:
-                    return super().fleet_preparation()
-                except HardNotSatisfied:
-                    logger.warning('Hard restrictions not satisfied after Recommend, tap it once more')
+                if self.map_fleet_checked:
+                    return False
 
-                outer.hard_progress_recommend(self)
-                try:
-                    return super().fleet_preparation()
-                except HardNotSatisfied:
-                    # HardNotSatisfied subclasses RequestHumanTakeover, which alas.py
-                    # answers with exit(1). It must never escape this task.
+                results = outer.hard_progress_recommend(self)
+                if not results:
+                    # Most likely a row still animating, so the Recommend
+                    # buttons were not visible. Look once more.
+                    logger.warning('No hard fleet slot found, retrying once')
+                    self.device.sleep(1.5)
+                    results = outer.hard_progress_recommend(self)
+
+                if False in results.values():
                     outer.hard_unsatisfied_stop(outer.current_stage)
+                if not results:
+                    logger.warning('Still no hard fleet slot found, '
+                                   'sortieing with the fleets as they are')
+
+                # super().fleet_preparation() is never called. This task only
+                # ever runs hard stages, and upstream decides hard-vs-normal by
+                # whether a Recommend button happens to be visible right then -
+                # get that wrong once and its normal-mode path clears fleet 2
+                # with FleetOperator.clear(), which cannot terminate on a hard
+                # slot and takes the game down with GameTooManyClickError.
+                return outer.skip_upstream_fleet_preparation(self)
 
         self.campaign = HardProgressCampaign(device=self.campaign.device, config=self.campaign.config)
         return True
