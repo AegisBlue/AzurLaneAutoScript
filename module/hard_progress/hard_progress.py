@@ -26,7 +26,9 @@ neither gets better by trying again tomorrow:
 - A stage takes three entries in a row without gaining a single percent or
   star: either Recommend cannot build a fleet that satisfies the stage, or it
   can enter but loses. A defeat is not an error in ALAS - a lost battle is
-  only logged - so this stall counter IS the defeat detector.
+  only logged - so this stall counter IS the defeat detector. Stages grinding
+  a counted star, such as 5-3's "Defeat escort fleet (12/18)", are exempt:
+  they gain nothing visible per entry but are not stuck.
 
 Never enable this together with the stock Hard task. They share the same
 three daily entries and would fight over them.
@@ -271,6 +273,37 @@ class HardProgress(CampaignRun):
             return campaign.map_is_3_stars
         return campaign.map_is_100_percent_clear and campaign.map_is_3_stars
 
+    @staticmethod
+    def grinding_a_counted_star(campaign):
+        """
+        Some stages hide a star behind a counter that spans sorties. Hard 5-3
+        asks for "Defeat escort fleet (12/18)" - eighteen escort fleets sunk in
+        total, carried over between runs. Clearing the map adds to that counter
+        without moving the clear percentage or lighting a star, so every entry
+        looks like a wasted one to watch_progress() and a stage that is
+        progressing perfectly well would be called unclearable and self-disable
+        the task.
+
+        A stage already at 100% with its defeat-all-enemies star earned has been
+        finished by a fleet before, so it is not a defeat loop and it is not
+        short of ships. Whatever is left is a counter, and counters need entries,
+        not intervention. The stall counter stays for the cases it was written
+        for: a stage that cannot be cleared at all.
+
+        Args:
+            campaign (CampaignBase): In MAP_PREPARATION, map info just read.
+
+        Returns:
+            bool: If the only thing left on this stage is a counter to grind.
+        """
+        if not campaign.map_is_100_percent_clear:
+            return False
+        # The star index whose condition is "defeat all enemies", per map config
+        all_enemies = _int(campaign.config.STAR_REQUIRE_3)
+        if not all_enemies:
+            return False
+        return bool(getattr(campaign, f'map_achieved_star_{all_enemies}', False))
+
     def watch_progress(self, campaign):
         """
         Called on every map peek, right after map_get_info(). Compares this
@@ -316,6 +349,12 @@ class HardProgress(CampaignRun):
 
         if not sortied:
             logger.info(f'Hard stage {stage} popup re-read without a sortie in between, '
+                        f'not counting it as a failed attempt')
+            self.record_write(stage=stage, pct=best_pct, star=best_star, fail=fail, ui=ui)
+            return
+
+        if self.grinding_a_counted_star(campaign):
+            logger.info(f'Hard stage {stage} is grinding a counted star condition, '
                         f'not counting it as a failed attempt')
             self.record_write(stage=stage, pct=best_pct, star=best_star, fail=fail, ui=ui)
             return
