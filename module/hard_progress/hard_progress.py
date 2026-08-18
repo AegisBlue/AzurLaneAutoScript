@@ -323,11 +323,11 @@ class HardProgress(CampaignRun):
         criteria still want stars.
 
         Everything downstream follows on its own. handle_fast_forward() reads
-        both a few lines after this in enter_map(): it unchecks Clearing Mode,
-        and drops auto search with it because auto search is not offered
-        without Clearing Mode. campaign_base dispatches battle_function to
-        clear_all, which kills every enemy, siren and fortress on the map and
-        only then goes for the boss.
+        both a few lines after this in enter_map(): it unchecks Clearing Mode
+        and clears map_is_auto_search, which handle_auto_search() turns into an
+        unchecked Auto-Search a line later. campaign_base dispatches
+        battle_function to clear_all, which kills every enemy, siren and
+        fortress on the map and only then goes for the boss.
 
         Args:
             campaign (CampaignBase): In MAP_PREPARATION, map info just read.
