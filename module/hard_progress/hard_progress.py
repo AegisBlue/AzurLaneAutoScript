@@ -16,11 +16,11 @@ towards EndStage, and on every stage it:
    emptied on the preparation page and rebuilt with the in-game Recommend
    button, so every sortie goes out with a fleet picked from the dock as it is
    today rather than the one the game remembers from the last clear.
-   While any star is still missing the sortie sweeps the whole map before
-   going for the boss - the same clear-all routing the Main task uses with
-   StopCondition.MapAchievement set to map_3_stars - because auto search
-   drives straight at the boss and stars that ask for the map to be cleared
-   would never arrive.
+   While any star is still missing the sortie also unchecks the game's
+   Clearing Mode and sweeps the whole map before going for the boss. Clearing
+   Mode is what makes a re-entry cheap - the boss spawns at once and the mob
+   fleets do not - and that is exactly what a star counting mob kills, such
+   as 5-3's "Defeat escort fleet (12/18)", can never make progress against.
 3. Writes the advanced pointer back to HardProgress.NextStage, so a restart
    picks up where it left off.
 
@@ -278,31 +278,14 @@ class HardProgress(CampaignRun):
             return campaign.map_is_3_stars
         return campaign.map_is_100_percent_clear and campaign.map_is_3_stars
 
-    def force_clear_all(self, campaign):
+    def wants_stars(self, campaign):
         """
-        Sweep the whole map before touching the boss, the way the Main task does
-        when StopCondition.MapAchievement is map_3_stars.
-
-        Upstream arms MAP_CLEAR_ALL_THIS_TIME only while the star named by the
-        map's STAR_REQUIRE_3 is missing - the "defeat all enemies" one. That
-        misses a stage holding a *different* star behind clearing the map. Hard
-        5-3 wants "Defeat escort fleet (12/18)" while its defeat-all-enemies
-        star is already lit, so the flag stayed off, auto search stayed on, and
-        auto search drives straight at the boss: the escort count crept up a
-        fleet or two per entry and the stage was never going to finish.
-
-        Any missing star is reason enough to sweep, so arm it whenever the
-        criteria still want stars. Everything downstream follows on its own -
-        handle_fast_forward() reads the flag immediately after this and turns
-        auto search off, and campaign_base dispatches battle_function to
-        clear_all, which kills every enemy, siren and fortress on the map and
-        only then goes for the boss.
-
         Args:
             campaign (CampaignBase): In MAP_PREPARATION, map info just read.
 
         Returns:
-            bool: If clear-all was armed here.
+            bool: If this sortie is being spent on a star rather than on the
+                clear percentage.
         """
         if self.config.HardProgress_Criteria == '100_percent_clear':
             # Stars are not wanted, so there is nothing to sweep for
@@ -312,11 +295,55 @@ class HardProgress(CampaignRun):
         if not campaign.config.STAR_REQUIRE_3:
             # Map has no star conditions at all, e.g. SOS maps
             return False
-        if campaign.config.MAP_CLEAR_ALL_THIS_TIME:
-            # Upstream already armed it
+        return True
+
+    def force_full_map(self, campaign):
+        """
+        Put the whole map in front of the fleet: every mob fleet spawned, and
+        every one of them sunk before the boss is touched.
+
+        Two settings decide that and both have to be handled.
+
+        Clearing Mode - the game's own toggle at the bottom of the stage popup,
+        upstream's Campaign_UseClearMode - is the cheap way to re-enter a stage
+        that is already 100% cleared: the boss spawns immediately and the mob
+        fleets do not. That is exactly wrong for a stage still holding a star
+        that counts mob kills. Hard 5-3 wants "Defeat escort fleet (12/18)",
+        and with Clearing Mode on its sorties found nothing but the boss - a
+        counter that gains nothing per entry, forever. Off, the map spawns the
+        way it did before the stage was ever cleared: three mobs at once and
+        more after each battle, eight in total on 5-3 before the boss appears.
+
+        MAP_CLEAR_ALL_THIS_TIME then routes the fleet through all of them. It
+        is the flag the Main task arms with StopCondition.MapAchievement on
+        map_3_stars, and upstream sets it only while the star named by the
+        map's STAR_REQUIRE_3 is missing - the "defeat all enemies" one, which
+        on 5-3 is already lit, so it stayed off and the fleet drove straight at
+        the boss. Any missing star is reason enough, so arm it whenever the
+        criteria still want stars.
+
+        Everything downstream follows on its own. handle_fast_forward() reads
+        both a few lines after this in enter_map(): it unchecks Clearing Mode,
+        and drops auto search with it because auto search is not offered
+        without Clearing Mode. campaign_base dispatches battle_function to
+        clear_all, which kills every enemy, siren and fortress on the map and
+        only then goes for the boss.
+
+        Args:
+            campaign (CampaignBase): In MAP_PREPARATION, map info just read.
+
+        Returns:
+            bool: If the sweep was armed for this sortie.
+        """
+        if not self.wants_stars(campaign):
+            # Only clear percentage left to earn. Clearing Mode and auto search
+            # are the fastest way to top it up, so leave them on. Assigned
+            # rather than skipped: the flag carries from stage to stage.
+            campaign.config.Campaign_UseClearMode = True
             return False
 
-        logger.info('Stars still missing, clear the whole map before the boss')
+        logger.info('Stars still missing, spawn the whole map and clear it before the boss')
+        campaign.config.Campaign_UseClearMode = False
         campaign.config.MAP_CLEAR_ALL_THIS_TIME = True
         return True
 
@@ -695,9 +722,9 @@ class HardProgress(CampaignRun):
 
             def map_get_info(self):
                 super().map_get_info()
-                # Before handle_fast_forward() reads the flag, a few lines later
-                # in enter_map()
-                outer.force_clear_all(self)
+                # Before handle_fast_forward() reads Campaign_UseClearMode and
+                # MAP_CLEAR_ALL_THIS_TIME, a few lines later in enter_map()
+                outer.force_full_map(self)
                 outer.watch_progress(self)
 
             def fleet_preparation(self):
@@ -826,12 +853,13 @@ class HardProgress(CampaignRun):
         """
         self.config.override(
             Campaign_Mode='hard',
+            # Clearing Mode plus auto search is the fast way through a stage
+            # that only needs its clear percentage topped up: one entry, boss
+            # only, a minute and a half. force_full_map() turns both off again
+            # per sortie while a star is still missing, because Clearing Mode
+            # keeps the mob fleets from spawning at all.
             Campaign_UseClearMode=True,
             Campaign_UseFleetLock=True,
-            # Auto search is the fast way through a stage that only needs its
-            # clear percentage topped up. force_clear_all() turns it off again
-            # per sortie while stars are still missing, because auto search
-            # drives at the boss and leaves the rest of the map alive.
             Campaign_UseAutoSearch=True,
             Campaign_Use2xBook=False,
             Fleet_FleetOrder='fleet1_all_fleet2_standby',
