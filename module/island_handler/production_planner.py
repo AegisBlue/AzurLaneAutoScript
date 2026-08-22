@@ -770,6 +770,38 @@ class IslandProductionPlanner(DaemonBase):
             'bounds': [(0, None)] * total_vars,
         }
 
+    @staticmethod
+    def _unreachable_demand_items(problem):
+        """Demanded items the island has no way to obtain, directly or indirectly.
+
+        A single such item makes the whole LP infeasible, which would otherwise
+        throw away the entire production plan. Season tasks and season requests
+        routinely ask for items an early island has not unlocked yet.
+
+        Reachability is a fixed point rather than a simple "something outputs it"
+        check: a recipe only counts once every one of its inputs is itself
+        reachable. Dried Persimmon has a recipe, but it is unobtainable while its
+        input Kaki Persimmon is out of season.
+        """
+        # Development funds are a currency with their own balance row, so shop
+        # purchases count as reachable inputs.
+        reachable = {1}
+        for product in problem['wild_gather_plan'].values():
+            reachable.update(product)
+        reachable.update(problem['mining_supply_plan'])
+        reachable.update(problem['logging_supply_plan'])
+        changed = True
+        while changed:
+            changed = False
+            for activity in problem['activities']:
+                if not all(item_id in reachable for item_id in activity['inputs']):
+                    continue
+                for item_id in activity['outputs']:
+                    if item_id not in reachable:
+                        reachable.add(item_id)
+                        changed = True
+        return {item_id for item_id in problem['demand_items'] if item_id not in reachable}
+
     def _apply_production_lp_result(self, result, problem):
         self.lp_status = result.status
         self.lp_success = result.success
@@ -1182,6 +1214,17 @@ class IslandProductionPlanner(DaemonBase):
             )
         demand_items = merge_item_needs(self.task_target_items, self.stuck_season_order_items)
         problem = self._build_production_problem(demand_items=demand_items)
+        unreachable = self._unreachable_demand_items(problem)
+        if unreachable:
+            logger.warning(
+                'Dropping demands the island cannot produce yet: '
+                + ', '.join(f'{self._item_name(item_id)}({item_id})' for item_id in sorted(unreachable))
+            )
+            demand_items = {
+                item_id: data for item_id, data in demand_items.items()
+                if item_id not in unreachable
+            }
+            problem = self._build_production_problem(demand_items=demand_items)
         self._reset_lp_result()
         result = None
         solver_attempts = [
@@ -1247,6 +1290,16 @@ class IslandProductionPlanner(DaemonBase):
             stuck_season_order_id=stuck_season_order_id,
         )
         self.print_solved_production_plan()
+        if export and not self.lp_success:
+            # Exporting a failed solve would overwrite a working plan with empty values.
+            logger.warning(
+                'Production plan not solved, keeping the previous plan. '
+                'Check whether DailyProfitLowerLimit is higher than this island can reach.'
+            )
+            with self.config.multi_set():
+                self.config.cross_set("IslandProductionPlanner.Storage.Storage.IslandTechnologyStatus", technology_status)
+                self.config.cross_set("IslandProductionPlanner.IslandProductionPlanner.RescanIslandTechnology", False)
+            return
         if export:
             inventory_levels_yaml_text = self.daily_buffer_items_to_yaml(use_item_name=use_item_name_in_export)
             idle_accumulating_items_yaml_text = self.idle_accumulating_items_to_yaml(use_item_name=use_item_name_in_export)
