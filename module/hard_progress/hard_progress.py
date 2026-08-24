@@ -15,7 +15,10 @@ towards EndStage, and on every stage it:
 2. If the criteria are not met, sorties until they are. Both fleets are
    emptied on the preparation page and rebuilt with the in-game Recommend
    button, so every sortie goes out with a fleet picked from the dock as it is
-   today rather than the one the game remembers from the last clear.
+   today rather than the one the game remembers from the last clear. Fleet 2
+   is rebuilt first, so the boss - which fleet 2 is saved for and meets at
+   full HP and full ammo - is fought by the strongest six ships in the dock,
+   while fleet 1 clears the mobs with the remainder.
    While any star is still missing the sortie also unchecks the game's
    Clearing Mode and sweeps the whole map before going for the boss. Clearing
    Mode is what makes a re-entry cheap - the boss spawns at once and the mob
@@ -530,8 +533,11 @@ class HardProgress(CampaignRun):
             campaign.device.screenshot()
             self.clear_fleet(campaign, self.fleet_operators(campaign)[name])
 
+        # Fleet 2 fights the boss (Fleet_FleetOrder is fleet1_mob_fleet2_boss),
+        # so it gets first pick of the dock and the strongest six ships.
+        # Fleet 1 clears the mobs with the remainder.
         results = {}
-        for name in targets:
+        for name in reversed(targets):
             campaign.device.screenshot()
             results[name] = self.recommend_fleet(campaign, self.fleet_operators(campaign)[name])
         return results
@@ -862,7 +868,13 @@ class HardProgress(CampaignRun):
             Campaign_UseFleetLock=True,
             Campaign_UseAutoSearch=True,
             Campaign_Use2xBook=False,
-            Fleet_FleetOrder='fleet1_all_fleet2_standby',
+            # Fleet 1 clears the mobs, fleet 2 is kept fresh for the boss, so
+            # the boss is always fought at full HP and full ammo. One setting
+            # covers both sortie regimes: it is the in-game auto search preset
+            # AND what config.FLEET_BOSS derives from, so ALAS's own pathing
+            # sends fleet 2 at the boss too. Stages whose map file sets
+            # FLEET_2 = 0 fall back to fleet 1 on their own.
+            Fleet_FleetOrder='fleet1_mob_fleet2_boss',
             Emotion_Mode='nothing',  # Dont calculate and dont ignore, same as the stock Hard task
             # MAP_CLEAR_ALL_THIS_TIME, which routes through every node while a star is
             # still missing, only arms on 'map_3_stars' / 'threat_safe'
