@@ -183,6 +183,16 @@ class IslandOrder(IslandUI):
     def is_order_satisfied(self, order_requirements, is_urgent=False, is_season=False):
         for item, counter in order_requirements.items():
             stock, required, _ = counter
+            if required <= 0:
+                # A real request never asks for zero. The counter OCR returns
+                # (0, 0, 0) when it cannot parse a row, which would otherwise
+                # look like a satisfied requirement and make Alas spam Accept
+                # against an order the game keeps refusing.
+                logger.warning(
+                    f'Item {item} has an invalid required count {required}, '
+                    f'counter OCR likely failed, treat order as unsatisfied'
+                )
+                return False
             hard_floor = self.hard_floor.get(item, 0)
             priority = is_urgent or is_season
             effective_stock = get_order_effective_stock(
@@ -272,11 +282,23 @@ class IslandOrder(IslandUI):
         return time_ocr
 
     def reject_order(self):
-        for _ in self.loop():
-            if self.appear_then_click(ISLAND_ORDER_REJECT, offset=(20, 20), interval=1):
-                continue
+        """
+        Returns:
+            timedelta | None: Cooldown before the replacement order arrives,
+                or None if the game refuses to replace this request.
+        """
+        for _ in self.loop(timeout=20):
             if self.appear(ISLAND_ORDER_COOLDOWN_SPEED_UP, offset=(20, 20)):
                 break
+            if self.appear_then_click(ISLAND_ORDER_REJECT, offset=(20, 20), interval=1):
+                continue
+        else:
+            # Some requests cannot be declined at all; the game answers the click
+            # with a "This cannot be replaced." toast and leaves the panel open.
+            # Without this guard the loop clicks Decline forever and the whole
+            # scheduler stops.
+            logger.warning('Reject order timeout, this request cannot be replaced')
+            return None
         cooldown_remain_time = self.cooldown_time_ocr.ocr(self.device.image)
         logger.info(f'Order cooldown remain time: {cooldown_remain_time}')
         return cooldown_remain_time
@@ -329,6 +351,15 @@ class IslandOrder(IslandUI):
                 return False
             else:
                 remain_time = self.reject_order()
+                if remain_time is None:
+                    # Undeclinable and unfillable, so leave it alone and come back
+                    # when it expires on its own rather than retrying immediately.
+                    remain_time = self.get_order_remain_time(order_button)
+                    if remain_time == timedelta(0):
+                        logger.warning('Order remain time ocr error, default to 8 hours')
+                        remain_time = timedelta(hours=8)
+                    self.next_runtime.append(datetime.now() + remain_time)
+                    return False
                 next_runtime = datetime.now() + remain_time
                 self.next_runtime.append(next_runtime)
                 return True

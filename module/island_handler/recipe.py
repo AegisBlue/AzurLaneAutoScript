@@ -96,6 +96,14 @@ class IslandReversedDigitCounter(Ocr):
             normalized = f'{result.rstrip("/")}/0'
             logger.warning(f'Unexpected ocr result: {result}, normalized to {normalized}')
             result = normalized
+        elif re.fullmatch(r'/[0-9]+', result):
+            # A stock of 0 is drawn in the red "insufficient" colour and is the
+            # digit most often lost in pre-processing, leaving just "/7".
+            # Reading it as 0 keeps the shortfall visible instead of collapsing
+            # the whole row to (0, 0, 0), which reads as "nothing required".
+            normalized = f'0{result}'
+            logger.warning(f'Unexpected ocr result: {result}, normalized to {normalized}')
+            result = normalized
         # Accept only "total/current" or "total/(current+bonus)". The last
         # capture handles a direct current value; the middle two are summed.
         match = re.fullmatch(r'([0-9]+)/(?:\(([0-9]+)\+([0-9]+)\)|([0-9]+))', result)
