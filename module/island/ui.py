@@ -261,6 +261,13 @@ class IslandUI(UI):
             return True
         return False
 
+    def handle_island_restaurant_rank_up(self):
+        # Full-screen "restaurant reached a new grade" celebration, dismissed by tapping anywhere
+        if self.appear(ISLAND_RESTAURANT_RANK_UP, offset=(20, 20), interval=3):
+            self.device.click(ISLAND_CLICK_SAFE_AREA)
+            return True
+        return False
+
     def handle_island_popup_confirm(self, name='', offset=None, interval=2):
         if offset is None:
             offset = self._popup_offset
@@ -275,6 +282,8 @@ class IslandUI(UI):
         if self.handle_island_get_items():
             return True
         if self.handle_island_level_up():
+            return True
+        if self.handle_island_restaurant_rank_up():
             return True
         return False
 

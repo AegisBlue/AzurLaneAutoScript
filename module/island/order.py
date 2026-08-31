@@ -164,7 +164,6 @@ class IslandOrder(IslandUI):
 
     def get_order_remain_time(self, order_button: Button):
         time_button = order_button.crop((10, 119, 100, 145))
-        print(f'OCR area: {time_button.area}')
         time_ocr = Duration(time_button, name='ORDER_REMAIN_TIME_OCR')
         remain_time = time_ocr.ocr(self.device.image)
         logger.info(f'Order remain time: {remain_time}')
@@ -288,16 +287,22 @@ class IslandOrder(IslandUI):
             timedelta | None: Cooldown before the replacement order arrives,
                 or None if the game refuses to replace this request.
         """
+        # Some requests cannot be declined at all; the game answers the click
+        # with a "This cannot be replaced." toast and leaves the panel open.
+        # Cap the attempts well below device.click_record_check's limit of 12
+        # identical clicks, or GameTooManyClickError fires before the loop
+        # timeout and restarts the whole client (seen 2026-08-31).
+        reject_clicks = 0
         for _ in self.loop(timeout=20):
             if self.appear(ISLAND_ORDER_COOLDOWN_SPEED_UP, offset=(20, 20)):
                 break
+            if reject_clicks >= 5:
+                logger.warning('Reject order had no effect, this request cannot be replaced')
+                return None
             if self.appear_then_click(ISLAND_ORDER_REJECT, offset=(20, 20), interval=1):
+                reject_clicks += 1
                 continue
         else:
-            # Some requests cannot be declined at all; the game answers the click
-            # with a "This cannot be replaced." toast and leaves the panel open.
-            # Without this guard the loop clicks Decline forever and the whole
-            # scheduler stops.
             logger.warning('Reject order timeout, this request cannot be replaced')
             return None
         cooldown_remain_time = self.cooldown_time_ocr.ocr(self.device.image)
