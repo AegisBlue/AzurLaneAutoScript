@@ -14,12 +14,13 @@ from module.os.globe_camera import GlobeCamera
 from module.os.globe_operation import RewardUncollectedError
 from module.os_handler.assets import AUTO_SEARCH_OS_MAP_OPTION_OFF, AUTO_SEARCH_OS_MAP_OPTION_OFF_DISABLED, \
     AUTO_SEARCH_OS_MAP_OPTION_ON, AUTO_SEARCH_REWARD
+from module.os_handler.auto_search_guard import AutoSearchGuard
 from module.os_handler.strategic import StrategicSearchHandler
 from module.ui.assets import GOTO_MAIN
 from module.ui.page import page_os
 
 
-class OSMap(OSFleet, Map, GlobeCamera, StrategicSearchHandler):
+class OSMap(OSFleet, Map, GlobeCamera, StrategicSearchHandler, AutoSearchGuard):
     def os_init(self):
         """
         Call this method before doing any Operation functions.
@@ -485,6 +486,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StrategicSearchHandler):
         finished_combat = 0
         died_timer = Timer(1.5, count=3)
         self.hp_reset()
+        self.auto_search_guard_reset()
         for _ in self.loop():
             # End
             if not unlock_checked and unlock_check_timer.reached():
@@ -537,6 +539,8 @@ class OSMap(OSFleet, Map, GlobeCamera, StrategicSearchHandler):
             if self.handle_map_event():
                 # Auto search can not handle siren searching device.
                 continue
+            # CustomAlas: idle iteration, nothing handled above
+            self.auto_search_guard_check()
 
         return finished_combat
 
