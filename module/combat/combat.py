@@ -3,7 +3,7 @@ import numpy as np
 from module.base.timer import Timer
 from module.base.utils import color_similar, get_color
 from module.combat.assets import *
-from module.combat.assets_custom import DEFEAT_ADVICE_CLOSE, DEFEAT_ADVICE_TITLE
+from module.combat.assets_custom import DEFEAT_ADVICE_CLOSE, DEFEAT_ADVICE_TITLE, DEFEAT_RESULT_BAND, DEFEAT_RESULT_CONFIRM
 from module.combat.combat_auto import CombatAuto
 from module.combat.combat_manual import CombatManual
 from module.combat.hp_balancer import HPBalancer
@@ -448,6 +448,17 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
             else:
                 self.device.sleep((0.25, 0.5))
             self.device.click(BATTLE_STATUS_C)
+            return True
+        # EN 2026-08: the "ANNIHILATED D" screen has an orange Confirm button; the generated
+        # BATTLE_STATUS_D template is a background strip that the cat panel can cover, and the
+        # screen ignores taps during its entrance animation (custom, see assets_custom.py)
+        if self.appear(DEFEAT_RESULT_CONFIRM, threshold=30) and self.appear(DEFEAT_RESULT_BAND, threshold=30):
+            logger.warning('Battle Status D (annihilated)')
+            if drop:
+                drop.handle_add(self)
+            self.device.sleep(1.2)
+            self.device.click(DEFEAT_RESULT_CONFIRM)
+            self.device.sleep(1.0)
             return True
         if self.appear(BATTLE_STATUS_D, interval=self.battle_status_click_interval):
             logger.warning('Battle Status D')

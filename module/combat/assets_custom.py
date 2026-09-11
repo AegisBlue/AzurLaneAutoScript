@@ -12,9 +12,17 @@ from module.base.button import Button
 
 # Red title band "DEFEAT" at the top left of the improve-your-fleet screen.
 DEFEAT_ADVICE_TITLE = Button(
-    area=(60, 55, 420, 130), color=(157, 82, 86), button=(60, 55, 420, 130),
+    area=(60, 55, 420, 130), color=(156, 83, 86), button=(60, 55, 420, 130),
     name='DEFEAT_ADVICE_TITLE')
 # Dark "Close" button at the bottom centre of that screen.
 DEFEAT_ADVICE_CLOSE = Button(
-    area=(573, 593, 693, 637), color=(63, 69, 88), button=(573, 593, 693, 637),
+    area=(573, 593, 693, 637), color=(51, 71, 93), button=(573, 593, 693, 637),
     name='DEFEAT_ADVICE_CLOSE')
+
+# "ANNIHILATED D" result screen: orange Confirm button (bottom right) plus the red title band.
+DEFEAT_RESULT_CONFIRM = Button(
+    area=(1140, 645, 1215, 680), color=(230, 181, 113), button=(1140, 645, 1215, 680),
+    name='DEFEAT_RESULT_CONFIRM')
+DEFEAT_RESULT_BAND = Button(
+    area=(40, 20, 600, 45), color=(148, 77, 80), button=(40, 20, 600, 45),
+    name='DEFEAT_RESULT_BAND')
