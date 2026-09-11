@@ -3,6 +3,7 @@ import numpy as np
 from module.base.timer import Timer
 from module.base.utils import color_similar, get_color
 from module.combat.assets import *
+from module.combat.assets_custom import DEFEAT_ADVICE_CLOSE, DEFEAT_ADVICE_TITLE
 from module.combat.combat_auto import CombatAuto
 from module.combat.combat_manual import CombatManual
 from module.combat.hp_balancer import HPBalancer
@@ -456,6 +457,12 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
             else:
                 self.device.sleep((0.25, 0.5))
             self.device.click(BATTLE_STATUS_D)
+            return True
+        # EN 2026-08: an annihilation is followed by a "DEFEAT - Improve your fleet" screen
+        # with only a Close button (custom, see module/combat/assets_custom.py)
+        if self.appear(DEFEAT_ADVICE_TITLE, threshold=30) and self.appear(DEFEAT_ADVICE_CLOSE, threshold=30):
+            logger.warning('Defeat advice screen, closing')
+            self.device.click(DEFEAT_ADVICE_CLOSE)
             return True
 
         return False
