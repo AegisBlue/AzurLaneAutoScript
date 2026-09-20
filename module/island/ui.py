@@ -221,10 +221,15 @@ class IslandUI(UI):
             click_button=BACK_ARROW_WHITE,
             check_button=check_button,
             appear_button=appear_button,
+            # Full-screen celebrations cover BACK_ARROW_WHITE and the check button (seen 2026-09-17)
+            additional=self.handle_island_celebration,
             offset=offset,
             retry_wait=retry_wait,
             skip_first_screenshot=skip_first_screenshot,
         )
+
+    def handle_island_celebration(self):
+        return self.handle_island_level_up() or self.handle_island_restaurant_rank_up()
 
     def has_white_band(self, threshold=1200):
         min_y = 405
