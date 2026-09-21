@@ -175,6 +175,7 @@ LAB_CARD_HEIGHT = 204           # LAB_CARD_GRIDS.button_shape[1]
 # bottom every time.
 LAB_GAP_ANCHOR = LAB_CARD_TOP + LAB_CARD_HEIGHT
 # Sweep bounds. The roster is ~42 METAs; both are runaway brakes, not budgets.
+LAB_CARD_CLICK_MAX = 3
 LAB_SWEEP_SHIP_CAP = 80
 LAB_SWEEP_PAGE_CAP = 8
 
@@ -1574,9 +1575,16 @@ class MetaLab(Dock):
             self.device.sleep((0.9, 1.3))
             rows -= step
 
-    def dock_enter_card(self, button):
+    def dock_enter_card(self, button, index=None, offset=0):
         """
         From page_dock, open a dock card's ship detail page.
+
+        Bounded, and the card is re-read before every click. On 2026-09-21 the
+        last META row held 6 ships; right after backing out of the 6th, the
+        empty 7th cell read as a card for one frame (the dock was still
+        redrawing), and an unbounded ui_click then tapped bare background
+        every 10s until GameTooManyClickError - three runs in a row, which
+        stopped the whole scheduler.
 
         The click lands inside the visible list only. When the row offset is
         negative the top row's grid cell reaches above LAB_CARD_TOP, into the
@@ -1589,11 +1597,34 @@ class MetaLab(Dock):
 
         Pages:
             in: page_dock
-            out: SHIP_DETAIL_CHECK
+            out: SHIP_DETAIL_CHECK, or page_dock when returning False
+
+        Returns:
+            bool: If the ship detail page opened.
         """
         button = self.dock_card_clickable(button)
-        self.ui_click(button, appear_button=DOCK_CHECK, check_button=SHIP_DETAIL_CHECK,
-                      skip_first_screenshot=True)
+        logger.hr('Dock enter card')
+        click_timer = Timer(3, count=6)
+        clicks = 0
+        skip_first_screenshot = True
+        while 1:
+            if skip_first_screenshot:
+                skip_first_screenshot = False
+            else:
+                self.device.screenshot()
+
+            if self.appear(SHIP_DETAIL_CHECK, offset=(30, 30)):
+                return True
+            if click_timer.reached() and self.appear(DOCK_CHECK, offset=(30, 30)):
+                if index is not None and not self.dock_card_present(index, offset):
+                    logger.warning(f'{button.name} no longer reads as a card, skipped')
+                    return False
+                if clicks >= LAB_CARD_CLICK_MAX:
+                    logger.warning(f'{button.name} did not open after {clicks} clicks, skipped')
+                    return False
+                self.device.click(button)
+                clicks += 1
+                click_timer.reset()
 
     @staticmethod
     def dock_card_clickable(button):
@@ -1660,7 +1691,8 @@ class MetaLab(Dock):
                     # goes unprocessed is visible in the run log.
                     logger.info(f'Dock card {index + 1} not readable, skipped')
                     continue
-                self.dock_enter_card(cards.buttons[index])
+                if not self.dock_enter_card(cards.buttons[index], index=index, offset=offset):
+                    continue
                 self.process_ship()
                 processed += 1
                 page_seen += 1
