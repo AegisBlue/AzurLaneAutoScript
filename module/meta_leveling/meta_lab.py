@@ -527,8 +527,10 @@ class MetaLab(Dock):
         Pages:
             in: TACTICS_CHECK
         """
+        # threshold is a colour DISTANCE (0 = identical): 221 here matched every
+        # pixel, so every card read as selected and none was ever clicked
         return self.image_color_count(TACTICS_SELECT_MARKERS[index],
-                                      color=(255, 255, 255), threshold=221, count=25)
+                                      color=(255, 255, 255), threshold=34, count=25)
 
     def skill_maxed_notice(self):
         """
